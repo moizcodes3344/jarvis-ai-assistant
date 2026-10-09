@@ -1,20 +1,9 @@
-# Your-Desktop-Artificial-Assistant-(JARVIS)
-Jarvis is a Python coding companion or your personal assistant . Point it to a python function, and it will execute it. As soon as you change and save your code, Jarvis will detect it, and will rerun the function. If an exception is raised, it will be displayed in the error panel. Enjoy your assistant at free of cost.
+# JARVIS documentation
 
-## Installation
-### For windows users
-(run those in command prompt/cmt/terminal)
-For jarvis to listen to our voice/speech
-`pip install speechRecognition`
+See the [root README](../README.md) for v0.3 Phase 1.1 setup, supported
+commands, configuration, limitations, and roadmap.
 
-To speak out, or text to speech
-`pip install pyttsx3`
-
-For advance control on browser
-`pip install pywhatkit`
-
-To get wikipedia data
-`pip install wikipedia`
-
-To get funny jokes
-`pip install pyjokes`
+The original dependency guidance for speech recognition, pyttsx3, Wikipedia,
+and pyjokes is retained there. `pywhatkit` is not imported by this project.
+The earlier description of automatic function reloading and an error panel did
+not match the voice-assistant implementation and has been corrected.
