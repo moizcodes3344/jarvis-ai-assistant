@@ -10,6 +10,26 @@ from test_stable_core import jarvis
 
 
 class RequestBudgetTests(unittest.TestCase):
+    def test_nested_json_is_sanitized_and_never_enters_history(self):
+        from ai_service import AIError, AIService, AISettings, GeminiProvider, OpenAIProvider
+
+        for provider_type in (OpenAIProvider, GeminiProvider):
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-key",
+                                        "GEMINI_API_KEY": "synthetic-key"}, clear=True), \
+                    patch("ai_service.http.client.HTTPSConnection") as transport:
+                response = transport.return_value.getresponse.return_value
+                response.status = 200
+                response.read1.return_value = ("[" * 20000 + "]" * 20000).encode()
+                provider = provider_type(AISettings())
+                with self.assertRaisesRegex(AIError, "^response$"):
+                    provider.complete([])
+                service = AIService(AISettings(), provider)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    answer = service.reply("synthetic question")
+                self.assertIn("unusable response", answer)
+                self.assertEqual(service._history, [])
+                self.assertEqual(output.getvalue(), "")
+
     def test_slow_streaming_shares_one_budget_and_shrinks_socket_timeout(self):
         from ai_service import AIError, RequestBudget
 

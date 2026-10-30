@@ -177,7 +177,7 @@ class OpenAIProvider:
             raise AIError("timeout") from None
         except (OSError, http.client.HTTPException):
             raise AIError("network") from None
-        except (ValueError, TypeError, KeyError, AttributeError):
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
             raise AIError("response") from None
         finally:
             close_connection(connection)
@@ -244,7 +244,7 @@ class GeminiProvider:
             raise AIError("timeout") from None
         except (OSError, http.client.HTTPException):
             raise AIError("network") from None
-        except (ValueError, TypeError, KeyError, AttributeError, IndexError):
+        except (ValueError, TypeError, KeyError, AttributeError, IndexError, RecursionError):
             raise AIError("response") from None
         finally:
             close_connection(connection)
