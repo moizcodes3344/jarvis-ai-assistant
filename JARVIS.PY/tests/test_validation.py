@@ -17,6 +17,18 @@ spec.loader.exec_module(validation)
 
 
 class ValidationTests(unittest.TestCase):
+    def test_example_credentials_require_explicit_placeholders(self):
+        for value in ("", "''", '""', "YOUR_GMAIL_APP_PASSWORD", "your-api-key",
+                      "<YOUR_API_KEY>", "REPLACE_ME", '"" # supplied at runtime'):
+            with self.subTest(kind="placeholder"):
+                self.assertEqual(self.check("OPENAI_API_KEY=" + value + "\n", ".env.example"), [])
+        for value in ("synthetic-not-a-placeholder", '"synthetic spaced password"', '"unclosed'):
+            with self.subTest(kind="unsafe assignment"):
+                issues = self.check("JARVIS_EMAIL_PASSWORD=" + value + "\n", ".env.example")
+                self.assertTrue(issues)
+                self.assertNotIn(value, str(issues))
+        self.assertEqual(self.check("JARVIS_AI_MAX_OUTPUT_TOKENS=256\n", ".env.example"), [])
+
     def test_repository_failures_are_redacted_and_fail_closed(self):
         errors = (FileNotFoundError("synthetic private detail"),
                   subprocess.CalledProcessError(1, ["synthetic private detail"],

@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 
@@ -22,6 +23,24 @@ SECRET_PATTERNS = (
     r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
 )
 PRIVATE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+
+
+def example_credential_issue(line):
+    match = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line)
+    if not match or not re.search(r"(?:^|_)(?:PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY)$",
+                                 match[1], flags=re.I):
+        return None
+    try:
+        words = shlex.split(match[2], comments=True)
+    except ValueError:
+        return "invalid credential placeholder assignment"
+    value = " ".join(words)
+    if not value or re.fullmatch(
+        r"(?:YOUR[_-][A-Z0-9_-]+|REPLACE[_-]ME|CHANGE[_-]?ME|PLACEHOLDER|EXAMPLE[_-](?:KEY|TOKEN|PASSWORD)|<YOUR[_-][A-Z0-9_-]+>)",
+        value, flags=re.I,
+    ):
+        return None
+    return "credential field requires an empty value or explicit placeholder"
 
 
 def check_content(data, relative):
@@ -45,6 +64,10 @@ def check_content(data, relative):
             issues.append((relative, number, "merge conflict marker"))
         if any(re.search(pattern, line) for pattern in SECRET_PATTERNS):
             issues.append((relative, number, "credential pattern"))
+        if path.name == ".env.example":
+            category = example_credential_issue(line)
+            if category:
+                issues.append((relative, number, category))
     if text and not text.endswith("\n"):
         issues.append((relative, len(text.splitlines()), "missing final newline"))
     if path.suffix == ".py":
