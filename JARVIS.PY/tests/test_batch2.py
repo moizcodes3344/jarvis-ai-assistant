@@ -4,6 +4,7 @@ import contextlib
 from email import policy
 from email.parser import BytesParser
 import io
+import json
 import os
 import unittest
 import warnings
@@ -17,6 +18,34 @@ EMAIL_ENV = {
     "JARVIS_EMAIL_TO": "recipient@example.com",
     "JARVIS_EMAIL_PASSWORD": "synthetic-password",
 }
+
+
+class ProviderCleanupTests(unittest.TestCase):
+    def test_close_failures_preserve_primary_errors_and_success(self):
+        from ai_service import AIError, AISettings, GeminiProvider, OpenAIProvider
+
+        for provider_type in (OpenAIProvider, GeminiProvider):
+            for status in (200, 401, 429):
+                with self.subTest(provider=provider_type.__name__, status=status), \
+                        patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-openai",
+                                                "GEMINI_API_KEY": "synthetic-gemini"}, clear=True), \
+                        patch("ai_service.http.client.HTTPSConnection") as transport:
+                    connection = transport.return_value
+                    connection.close.side_effect = OSError("synthetic private detail")
+                    response = connection.getresponse.return_value
+                    response.status = status
+                    response.read.return_value = json.dumps({
+                        "status": "completed", "output": [{"type": "message", "role": "assistant",
+                            "content": [{"type": "output_text", "text": "Hello"}]}],
+                        "choices": [{"message": {"role": "assistant", "content": "Hello"}}],
+                    }).encode()
+                    provider = provider_type(AISettings())
+                    if status == 200:
+                        self.assertEqual(provider.complete([]), "Hello")
+                    else:
+                        with self.assertRaisesRegex(AIError, "^credentials$" if status == 401 else "^rate_limit$"):
+                            provider.complete([])
+                    connection.close.assert_called_once()
 
 
 class OutputTests(unittest.TestCase):

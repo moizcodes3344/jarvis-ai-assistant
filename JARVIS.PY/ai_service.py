@@ -66,6 +66,14 @@ class Provider(Protocol):
     def complete(self, messages: list[dict[str, str]]) -> str: ...
 
 
+def close_connection(connection):
+    """Cleanup must not replace a transport result or expose raw exception text."""
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+
 class OpenAIProvider:
     """Fixed HTTPS endpoint; no redirects, retries, SDK, or generated tool calls."""
 
@@ -132,7 +140,7 @@ class OpenAIProvider:
         except (ValueError, TypeError, KeyError, AttributeError):
             raise AIError("response") from None
         finally:
-            connection.close()
+            close_connection(connection)
 
 
 class GeminiProvider:
@@ -195,7 +203,7 @@ class GeminiProvider:
         except (ValueError, TypeError, KeyError, AttributeError, IndexError):
             raise AIError("response") from None
         finally:
-            connection.close()
+            close_connection(connection)
 
 
 def redact_credentials(text):
