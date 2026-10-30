@@ -6,6 +6,7 @@ This complements manual review; pattern matching cannot prove absence of secrets
 """
 
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -56,13 +57,16 @@ def check_content(data, relative):
 
 def check_file(path, relative):
     """Validate current working-tree bytes."""
-    return check_content(path.read_bytes(), relative)
+    try:
+        return check_content(path.read_bytes(), relative)
+    except OSError:
+        return [(relative, 1, "file unavailable for validation")]
 
 
 def git_bytes(root, *args):
     return subprocess.run(
         ["git", "--no-optional-locks", *args], cwd=root,
-        capture_output=True, check=True,
+        capture_output=True, check=True, timeout=30,
     ).stdout
 
 
@@ -72,8 +76,16 @@ def main(argv=None, root=None):
                         help="scan exact index blobs instead of working-tree files")
     args = parser.parse_args(argv)
     root = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+    try:
+        return scan(root, args.staged)
+    except (OSError, subprocess.SubprocessError, UnicodeError, ValueError):
+        print("Publication validation failed: repository data unavailable or invalid.")
+        return 1
+
+
+def scan(root, staged):
     issues = []
-    if args.staged:
+    if staged:
         records = git_bytes(root, "ls-files", "--stage", "-z").split(b"\0")
         files = []
         for record in filter(None, records):
@@ -98,7 +110,7 @@ def main(argv=None, root=None):
                 issues.extend(check_file(path, name))
 
     for name, line, category in issues:
-        print(f"{name}:{line}: {category}")
+        print(f"{json.dumps(name, ensure_ascii=True)}:{line}: {category}")
     print(f"Validated {len(files)} publication candidates; {len(issues)} issue(s).")
     return int(bool(issues))
 

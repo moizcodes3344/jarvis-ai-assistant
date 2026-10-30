@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location(
@@ -16,6 +17,23 @@ spec.loader.exec_module(validation)
 
 
 class ValidationTests(unittest.TestCase):
+    def test_repository_failures_are_redacted_and_fail_closed(self):
+        errors = (FileNotFoundError("synthetic private detail"),
+                  subprocess.CalledProcessError(1, ["synthetic private detail"],
+                                                stderr=b"synthetic private detail"),
+                  subprocess.TimeoutExpired("synthetic private detail", 30))
+        for error in errors:
+            with patch.object(validation, "git_bytes", side_effect=error), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(validation.main([]), 1)
+                self.assertNotIn("synthetic private detail", output.getvalue())
+                self.assertIn("validation failed", output.getvalue())
+
+    def test_unreadable_file_has_redacted_diagnostic(self):
+        with patch.object(Path, "read_bytes", side_effect=PermissionError("synthetic detail")):
+            self.assertEqual(validation.check_file(Path("sample.py"), "sample.py"),
+                             [("sample.py", 1, "file unavailable for validation")])
+
     def test_staged_scan_reads_index_not_working_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
