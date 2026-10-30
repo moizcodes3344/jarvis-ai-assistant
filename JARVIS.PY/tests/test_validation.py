@@ -1,7 +1,10 @@
 """Regression tests for publication checks; never use live credentials."""
 
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -13,6 +16,25 @@ spec.loader.exec_module(validation)
 
 
 class ValidationTests(unittest.TestCase):
+    def test_staged_scan_reads_index_not_working_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", directory], check=True, capture_output=True)
+            path = root / "sample.py"
+            synthetic = "sk-" + "aB3d" * 10
+            for staged, disk, expected_index, expected_disk in (
+                (f'VALUE = "{synthetic}"\n', 'VALUE = "safe"\n', 1, 0),
+                ('VALUE = "safe"\n', f'VALUE = "{synthetic}"\n', 0, 1),
+            ):
+                path.write_text(staged, encoding="utf-8")
+                subprocess.run(["git", "add", "--", "sample.py"], cwd=root,
+                               check=True, capture_output=True)
+                path.write_text(disk, encoding="utf-8")
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(validation.main(["--staged"], root), expected_index)
+                    self.assertEqual(validation.main([], root), expected_disk)
+                self.assertNotIn(synthetic, output.getvalue())
+
     def check(self, text, name="sample.py"):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / Path(name).name
