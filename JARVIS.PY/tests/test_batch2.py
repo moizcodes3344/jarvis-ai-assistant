@@ -77,6 +77,35 @@ class OutputTests(unittest.TestCase):
 
 
 class EmailTests(unittest.TestCase):
+    def test_smtp_greeting_and_tls_exceptions_never_authenticate_or_send(self):
+        for stage in ("initial_ehlo", "starttls", "tls_ehlo"):
+            with self.subTest(stage=stage), patch.dict(os.environ, EMAIL_ENV, clear=True), \
+                    patch.object(jarvis.smtplib, "SMTP") as smtp:
+                server = smtp.return_value.__enter__.return_value
+                error = jarvis.smtplib.SMTPException("synthetic transport detail")
+                if stage == "initial_ehlo":
+                    server.ehlo.side_effect = error
+                elif stage == "tls_ehlo":
+                    server.ehlo.side_effect = [(250, b"ok"), error]
+                else:
+                    server.starttls.side_effect = error
+                with self.assertRaises(jarvis.smtplib.SMTPException):
+                    jarvis.sendEmail("recipient@example.com", "body")
+                server.login.assert_not_called()
+                server.sendmail.assert_not_called()
+                smtp.return_value.__exit__.assert_called_once()
+
+    def test_smtp_tls_precedes_authentication(self):
+        with patch.dict(os.environ, EMAIL_ENV, clear=True), \
+                patch.object(jarvis.smtplib, "SMTP") as smtp:
+            jarvis.sendEmail("recipient@example.com", "body")
+            server = smtp.return_value.__enter__.return_value
+            self.assertEqual([call[0] for call in server.method_calls],
+                             ["ehlo", "starttls", "ehlo", "login", "sendmail"])
+            context = server.starttls.call_args.kwargs["context"]
+            self.assertTrue(context.check_hostname)
+            self.assertEqual(context.verify_mode, jarvis.ssl.CERT_REQUIRED)
+
     def test_hidden_input_warning_prevents_visible_fallback(self):
         fallback = MagicMock()
 
