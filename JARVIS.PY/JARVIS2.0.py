@@ -101,6 +101,13 @@ def has_phrase(query, *phrases):
 def command_for(query):
     """Match only the existing allowlisted commands; never execute input as code."""
     query = normalize_query(query)
+    # A negated action is handled locally, never executed or forwarded to AI.
+    if re.search(
+        r"\b(?:dont|do not|never|not|cannot|cant|shouldnt|should not|must not)\s+"
+        r"(?:(?:please|ever|actually)\s+)*(?:open|launch|start|play|send|email|search|clear|reset|exit|quit)\b",
+        query,
+    ):
+        return "negated_action"
     # Polite wrappers are safe only around exact shutdown commands.
     shutdown = re.sub(r"^(?:jarvis |please )+|(?: please)+$", "", query)
     if shutdown in ("exit", "quit"):
@@ -363,7 +370,9 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
         print(f"Dry run: {command}; external action skipped.")
         return True
     try:
-        if command == "help":
+        if command == "negated_action":
+            speak("No action taken. Please give one clear positive command if you want an action.")
+        elif command == "help":
             speak("Try time, open YouTube, open Google, open Stack Overflow, "
                   "Wikipedia followed by a topic, play music, open code, tell me a joke, "
                   "email to Raj, clear conversation, or quit. "
