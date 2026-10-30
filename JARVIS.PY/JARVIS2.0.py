@@ -155,6 +155,7 @@ def speak(audio):
     connections = []
     completion = []
     errors = []
+    cleanup_failed = False
     try:
         if engine is None:
             engine = pyttsx3.init("sapi5")
@@ -200,13 +201,15 @@ def speak(audio):
                 try:
                     engine.endLoop()
                 except Exception as error:
+                    cleanup_failed = True
                     report_error("Speech loop cleanup failed", error)
             for connection in connections:
                 try:
                     engine.disconnect(connection)
                 except Exception as error:
+                    cleanup_failed = True
                     report_error("Speech callback cleanup failed", error)
-            if not completion or not completion[-1] or errors:
+            if cleanup_failed or not completion or not completion[-1] or errors:
                 engine = None
 
 

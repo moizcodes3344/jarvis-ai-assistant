@@ -9,6 +9,45 @@ from unittest.mock import MagicMock, patch
 from test_stable_core import jarvis
 
 
+def completed_engine():
+    engine = MagicMock()
+    callbacks = {}
+    def connect(name, callback):
+        callbacks[name] = callback
+        return name
+    engine.connect.side_effect = connect
+    engine.getProperty.return_value = []
+    engine.isBusy.return_value = False
+    engine.iterate.side_effect = lambda: callbacks["finished-utterance"](None, True)
+    return engine
+
+
+class TTSCleanupTests(unittest.TestCase):
+    def test_cleanup_failure_initializes_fresh_engine_next_utterance(self):
+        for method in ("endLoop", "disconnect"):
+            broken, fresh = completed_engine(), completed_engine()
+            getattr(broken, method).side_effect = RuntimeError("synthetic detail")
+            with patch.object(jarvis, "engine", broken), patch.object(jarvis, "speech_enabled", True), \
+                    patch.object(jarvis.pyttsx3, "init", return_value=fresh) as initialize, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                jarvis.speak("first")
+                self.assertIsNone(jarvis.engine)
+                jarvis.speak("second")
+                self.assertIs(jarvis.engine, fresh)
+                initialize.assert_called_once_with("sapi5")
+                self.assertNotIn("synthetic detail", output.getvalue())
+
+    def test_healthy_engine_remains_reusable(self):
+        engine = completed_engine()
+        with patch.object(jarvis, "engine", engine), patch.object(jarvis, "speech_enabled", True), \
+                patch.object(jarvis.pyttsx3, "init") as initialize, \
+                contextlib.redirect_stdout(io.StringIO()):
+            jarvis.speak("first")
+            jarvis.speak("second")
+            self.assertIs(jarvis.engine, engine)
+            initialize.assert_not_called()
+
+
 class SMTPResponseTests(unittest.TestCase):
     def test_acceptance_is_preserved_after_quit_failure(self):
         for cleanup_error in (None, jarvis.smtplib.SMTPResponseException(500, b"synthetic detail")):
