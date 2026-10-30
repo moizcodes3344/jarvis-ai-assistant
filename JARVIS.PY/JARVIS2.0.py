@@ -384,7 +384,7 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
                 return True
             speak("What should I say, sir?")
             content = input_fn() if input_fn else takeCommand(sensitive=True)
-            if content is None:
+            if content is None or not content.strip():
                 speak("Email cancelled because no message was recognized.")
             elif command_for(content) == "exit":
                 speak("Goodbye, sir.")

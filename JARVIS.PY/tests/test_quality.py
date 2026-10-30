@@ -21,3 +21,16 @@ class EmailValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "^Email address configuration is invalid$"):
                         jarvis.sendEmail(mailbox if field == "recipient" else "b@example.com", "body")
                     smtp.assert_not_called()
+
+    def test_blank_message_cancels_without_confirmation(self):
+        for content in (None, "", " \t\n"):
+            with self.subTest(content=content), patch.dict(os.environ, {
+                "JARVIS_EMAIL_ADDRESS": "a@example.com",
+                "JARVIS_EMAIL_TO": "b@example.com",
+                "JARVIS_EMAIL_PASSWORD": "synthetic-password",
+            }, clear=True), patch.object(jarvis, "speak"), \
+                    patch.object(jarvis, "sendEmail") as send, \
+                    patch.object(jarvis, "takeCommand") as confirm:
+                self.assertTrue(jarvis.handle_command("email to raj", input_fn=lambda: content))
+                confirm.assert_not_called()
+                send.assert_not_called()
