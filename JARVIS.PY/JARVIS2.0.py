@@ -295,6 +295,12 @@ def read_email_message():
         return None
 
 
+def require_smtp_greeting(server):
+    code, _ = server.ehlo()
+    if code != 250:
+        raise smtplib.SMTPHeloError(code, b"SMTP greeting rejected")
+
+
 def sendEmail(to, content):
     address = os.getenv("JARVIS_EMAIL_ADDRESS", "").strip()
     password = os.getenv("JARVIS_EMAIL_PASSWORD", "")
@@ -314,9 +320,9 @@ def sendEmail(to, content):
     message["To"] = to
     message.set_content(content, charset="utf-8", cte="quoted-printable")
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-        server.ehlo()
+        require_smtp_greeting(server)
         server.starttls(context=ssl.create_default_context())
-        server.ehlo()
+        require_smtp_greeting(server)
         server.login(address, password)
         server.sendmail(address, to, message.as_bytes(policy=SMTP))
 

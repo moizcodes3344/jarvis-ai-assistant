@@ -9,6 +9,24 @@ from unittest.mock import MagicMock, patch
 from test_stable_core import jarvis
 
 
+class SMTPResponseTests(unittest.TestCase):
+    def test_returned_greeting_errors_stop_authentication(self):
+        for replies in ([(550, b"synthetic refusal")],
+                        [(250, b"ok"), (421, b"synthetic refusal")]):
+            with patch.dict(os.environ, {"JARVIS_EMAIL_ADDRESS": "sender@example.com",
+                                        "JARVIS_EMAIL_PASSWORD": "synthetic-password"}, clear=True), \
+                    patch.object(jarvis.smtplib, "SMTP") as smtp:
+                server = smtp.return_value.__enter__.return_value
+                server.ehlo.side_effect = replies
+                with self.assertRaises(jarvis.smtplib.SMTPHeloError) as caught:
+                    jarvis.sendEmail("recipient@example.com", "body")
+                self.assertNotIn("synthetic refusal", str(caught.exception))
+                server.login.assert_not_called()
+                server.sendmail.assert_not_called()
+                if len(replies) == 1:
+                    server.starttls.assert_not_called()
+
+
 class NegationTests(unittest.TestCase):
     def test_negated_or_mixed_actions_remain_local_without_side_effects(self):
         phrases = ("don't open google", "do not play music", "never open code",

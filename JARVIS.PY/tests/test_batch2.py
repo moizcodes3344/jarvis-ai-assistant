@@ -82,6 +82,7 @@ class EmailTests(unittest.TestCase):
             with self.subTest(stage=stage), patch.dict(os.environ, EMAIL_ENV, clear=True), \
                     patch.object(jarvis.smtplib, "SMTP") as smtp:
                 server = smtp.return_value.__enter__.return_value
+                server.ehlo.return_value = (250, b"ok")
                 error = jarvis.smtplib.SMTPException("synthetic transport detail")
                 if stage == "initial_ehlo":
                     server.ehlo.side_effect = error
@@ -98,6 +99,7 @@ class EmailTests(unittest.TestCase):
     def test_smtp_tls_precedes_authentication(self):
         with patch.dict(os.environ, EMAIL_ENV, clear=True), \
                 patch.object(jarvis.smtplib, "SMTP") as smtp:
+            smtp.return_value.__enter__.return_value.ehlo.return_value = (250, b"ok")
             jarvis.sendEmail("recipient@example.com", "body")
             server = smtp.return_value.__enter__.return_value
             self.assertEqual([call[0] for call in server.method_calls],
@@ -130,6 +132,7 @@ class EmailTests(unittest.TestCase):
             with self.subTest(body_type=type(body).__name__), \
                     patch.dict(os.environ, EMAIL_ENV, clear=True), \
                     patch.object(jarvis.smtplib, "SMTP") as smtp:
+                smtp.return_value.__enter__.return_value.ehlo.return_value = (250, b"ok")
                 jarvis.sendEmail("recipient@example.com", body)
                 call = smtp.return_value.__enter__.return_value.sendmail.call_args
                 self.assertEqual(call.args[:2], ("sender@example.com", "recipient@example.com"))
