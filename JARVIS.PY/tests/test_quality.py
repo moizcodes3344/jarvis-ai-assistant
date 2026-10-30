@@ -2,7 +2,9 @@
 
 import contextlib
 import io
+import importlib.util
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -37,6 +39,17 @@ class EmailValidationTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_microphone_diagnostic_import_does_not_capture(self):
+        path = Path(__file__).resolve().parents[1] / "mic_test.py"
+        spec = importlib.util.spec_from_file_location("mic_diagnostic", path)
+        module = importlib.util.module_from_spec(spec)
+        with patch.object(jarvis.sr, "Microphone") as microphone, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            spec.loader.exec_module(module)
+            microphone.assert_not_called()
+            self.assertEqual(output.getvalue(), "")
+            self.assertTrue(callable(module.main))
+
     def test_shutdown_discards_engine_even_when_stop_fails(self):
         for error in (None, RuntimeError("synthetic cleanup detail")):
             engine = MagicMock()
