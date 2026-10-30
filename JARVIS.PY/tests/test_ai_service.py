@@ -119,6 +119,14 @@ class AITests(unittest.TestCase):
         ai.reply("second")
         self.assertEqual(ai._history[0]["content"], "first")
 
+    def test_rotated_credentials_are_removed_from_retained_history(self):
+        ai, provider = self.service()
+        ai.reply("Explain synthetic-rotated-value")
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-rotated-value"}):
+            ai.reply("follow up")
+        self.assertNotIn("synthetic-rotated-value", str(provider.complete.call_args))
+        self.assertNotIn("synthetic-rotated-value", str(ai._history))
+
     def test_voice_formatting_and_length(self):
         result = voice_text("# Answer\n**Hello** [world](https://example.com)\n```python\nprint('secret')\n```\nhttps://example.com\x00", 600)
         self.assertEqual(result, "Answer Hello world Code omitted.")

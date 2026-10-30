@@ -265,6 +265,9 @@ class AIService:
             return "Please shorten your question so I can answer it."
         user_message = {"role": "user", "content": redact_credentials(query)}
         # Copy messages so even a faulty provider cannot mutate session history.
+        # Environment credentials may rotate after a turn was retained.
+        self._history = [dict(message, content=redact_credentials(message["content"]))
+                         for message in self._history]
         messages = [dict(message) for message in self._history] + [user_message.copy()]
         try:
             answer = voice_text(self.provider.complete(messages), self.settings.response_chars)
