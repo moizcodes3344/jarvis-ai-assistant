@@ -272,6 +272,13 @@ def sendEmail(to, content):
     password = os.getenv("JARVIS_EMAIL_PASSWORD", "")
     if not address or not password or not to:
         raise ValueError("Email configuration is missing")
+    # Accept one bare ASCII mailbox per envelope field, never SMTP control text.
+    for mailbox in (address, to):
+        if not isinstance(mailbox, str) or not re.fullmatch(
+            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?",
+            mailbox,
+        ):
+            raise ValueError("Email address configuration is invalid")
     if not content:
         raise ValueError("Email content is empty")
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
