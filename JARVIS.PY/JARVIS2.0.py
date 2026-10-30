@@ -31,6 +31,7 @@ engine = None
 calibrated_microphone = None
 input_failures = 0
 speech_enabled = True
+GOOGLE_RECOGNITION_ENDPOINT = "https://www.google.com/speech-api/v2/recognize"
 
 
 def number_setting(name, default, minimum, maximum, integer=False):
@@ -243,7 +244,9 @@ def takeCommand(sensitive=False):
             audio = Listener.listen(source, timeout=settings["timeout"],
                                     phrase_time_limit=settings["phrase_limit"])
         print("Recognizing...")
-        query = Listener.recognize_google(audio, language=settings["language"]).strip()
+        query = Listener.recognize_google(
+            audio, language=settings["language"], endpoint=GOOGLE_RECOGNITION_ENDPOINT,
+        ).strip()
         # Dictated email may contain sensitive content: do not log transcripts.
         print("Command recognized." if query else "No speech recognized.")
         if query:

@@ -290,7 +290,8 @@ class StableCoreTests(unittest.TestCase):
                 patch.object(jarvis.Listener, "listen") as listen, \
                 patch.object(jarvis.Listener, "recognize_google", return_value="time") as recognize:
             self.assertEqual(jarvis.takeCommand(), "time")
-            recognize.assert_called_once_with(listen.return_value, language="en-GB")
+            recognize.assert_called_once_with(listen.return_value, language="en-GB",
+                                              endpoint=jarvis.GOOGLE_RECOGNITION_ENDPOINT)
             listen.assert_called_once_with(mic.return_value.__enter__.return_value,
                                           timeout=9, phrase_time_limit=15)
             self.assertEqual(jarvis.Listener.energy_threshold, 450)
