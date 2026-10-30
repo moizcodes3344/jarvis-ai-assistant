@@ -251,6 +251,18 @@ class MockedOpenAIContractTests(unittest.TestCase):
         self.response.read.return_value = b'{"status":"incomplete","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial answer."}]}]}'
         self.assertEqual(self.provider.complete([]), "Partial answer.")
 
+    def test_invalid_nested_response_shapes_fail_closed(self):
+        for output in ({}, "text", [None], [42],
+                       [{"type": "message", "role": "assistant", "content": {}}],
+                       [{"type": "message", "role": "assistant", "content": [None]}],
+                       [{"type": "message", "role": "assistant", "content": [
+                           {"type": "output_text", "text": 42}]}]):
+            with self.subTest(shape=type(output).__name__):
+                self.response.read.return_value = json.dumps({
+                    "status": "completed", "output": output}).encode()
+                with self.assertRaisesRegex(AIError, "^response$"):
+                    self.provider.complete([])
+
 
 if __name__ == "__main__":
     unittest.main()

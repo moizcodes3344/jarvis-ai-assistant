@@ -99,13 +99,23 @@ class OpenAIProvider:
             if len(data) > MAX_RESPONSE_BYTES:
                 raise AIError("response")
             result = json.loads(data)
-            if result.get("status") not in ("completed", "incomplete") or result.get("error"):
+            if not isinstance(result, dict) or result.get("status") not in ("completed", "incomplete") or result.get("error"):
+                raise AIError("response")
+            if not isinstance(result.get("output"), list):
                 raise AIError("response")
             texts = []
-            for item in result.get("output", []):
+            for item in result["output"]:
+                if not isinstance(item, dict):
+                    raise AIError("response")
                 if item.get("type") == "message" and item.get("role") == "assistant":
-                    for part in item.get("content", []):
+                    if not isinstance(item.get("content"), list):
+                        raise AIError("response")
+                    for part in item["content"]:
+                        if not isinstance(part, dict):
+                            raise AIError("response")
                         if part.get("type") == "output_text":
+                            if not isinstance(part.get("text"), str):
+                                raise AIError("response")
                             texts.append(part["text"])
                         elif part.get("type") == "refusal":
                             texts.append("I cannot help with that request.")
