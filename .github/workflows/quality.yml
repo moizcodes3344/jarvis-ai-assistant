@@ -33,7 +33,8 @@
         {
           "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
           "with": {
-            "persist-credentials": false
+            "persist-credentials": false,
+            "fetch-depth": 0
           }
         },
         {
@@ -56,7 +57,7 @@
         },
         {
           "name": "Whitespace",
-          "run": "git diff --check"
+          "run": "python -B JARVIS.PY/tools/check_diff.py"
         }
       ]
     }
