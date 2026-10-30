@@ -228,6 +228,7 @@ def takeCommand(sensitive=False):
     """Return recognized speech, or None after a recoverable input failure."""
     global calibrated_microphone, input_failures
     settings = None
+    recognition_started = False
     try:
         settings = voice_settings()
         Listener.operation_timeout = settings["service_timeout"]
@@ -254,6 +255,7 @@ def takeCommand(sensitive=False):
             audio = Listener.listen(source, timeout=settings["timeout"],
                                     phrase_time_limit=settings["phrase_limit"])
         print("Recognizing...")
+        recognition_started = True
         query = Listener.recognize_google(
             audio, language=settings["language"], endpoint=GOOGLE_RECOGNITION_ENDPOINT,
         ).strip()
@@ -267,6 +269,12 @@ def takeCommand(sensitive=False):
         print("No speech detected. Listening again shortly.")
     except sr.UnknownValueError:
         print("Could not understand speech. Please repeat your command.")
+    except TimeoutError as error:
+        if recognition_started:
+            report_error("Speech recognition service timed out", error)
+        else:
+            report_error("Microphone capture timed out", error)
+            calibrated_microphone = None
     except sr.RequestError as error:
         report_error("Speech recognition service unavailable", error)
         if input_failures == 0:

@@ -121,6 +121,27 @@ class VoiceSecurityTests(unittest.TestCase):
         calibration.start()
         self.addCleanup(calibration.stop)
 
+    def test_recognition_timeout_preserves_calibration_and_bounds_recovery(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(jarvis.sr, "Microphone"), \
+                patch.object(jarvis.Listener, "listen"), \
+                patch.object(jarvis.Listener, "recognize_google", side_effect=TimeoutError("synthetic detail")), \
+                patch.object(jarvis.time, "sleep") as sleep, patch.object(jarvis, "speak"), \
+                patch.object(jarvis, "input_failures", 100), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            jarvis.takeCommand()
+            self.assertIsNotNone(jarvis.calibrated_microphone)
+            self.assertIn("Speech recognition service timed out", output.getvalue())
+            self.assertNotIn("synthetic detail", output.getvalue())
+            self.assertLessEqual(sleep.call_args.args[0], 8)
+        with patch.dict(os.environ, {}, clear=True), patch.object(jarvis.sr, "Microphone"), \
+                patch.object(jarvis.Listener, "listen", side_effect=TimeoutError()), \
+                patch.object(jarvis.Listener, "recognize_google") as recognize, \
+                patch.object(jarvis.time, "sleep"), contextlib.redirect_stdout(io.StringIO()) as output:
+            jarvis.takeCommand()
+            self.assertIsNone(jarvis.calibrated_microphone)
+            recognize.assert_not_called()
+            self.assertIn("Microphone capture timed out", output.getvalue())
+
     def test_https_endpoint_language_and_timeout_preserved(self):
         with patch.dict(os.environ, {"JARVIS_RECOGNITION_LANGUAGE": "ur-PK",
                                     "JARVIS_RECOGNITION_TIMEOUT": "12"}, clear=True), \
