@@ -29,7 +29,7 @@ class GeminiProviderTests(unittest.TestCase):
         self.connection = self.connection_class.return_value
         self.response = self.connection.getresponse.return_value
         self.response.status = 200
-        self.response.read.return_value = self.response_body("A concise answer.")
+        self.response.read1.return_value = self.response_body("A concise answer.")
         self.service = AIService.from_env()
         self.provider = self.service.provider
 
@@ -98,11 +98,11 @@ class GeminiProviderTests(unittest.TestCase):
                 self.response.status = status
                 with self.assertRaisesRegex(AIError, category):
                     self.provider.complete([])
-                self.response.read.assert_not_called()
+                self.response.read1.assert_not_called()
         self.assertEqual(self.connection.close.call_count, 7)
 
     def test_timeout_network_failures_at_each_transport_stage(self):
-        for stage in (self.connection.request, self.connection.getresponse, self.response.read):
+        for stage in (self.connection.request, self.connection.getresponse, self.response.read1):
             for error, category in ((TimeoutError("GeminiSyntheticCredential123"), "timeout"),
                                     (OSError("GeminiSyntheticCredential123"), "network"),
                                     (http.client.HTTPException("GeminiSyntheticCredential123"), "network")):
@@ -122,24 +122,24 @@ class GeminiProviderTests(unittest.TestCase):
                    {"choices": [{"message": {"role": "user", "content": "Wrong role"}}]}]
         for result in invalid:
             with self.subTest(shape=type(result).__name__):
-                self.response.read.return_value = json.dumps(result).encode()
+                self.response.read1.return_value = json.dumps(result).encode()
                 with self.assertRaisesRegex(AIError, "response"):
                     self.provider.complete([])
         for body in (b"not json", b"\xff", b"x" * (MAX_RESPONSE_BYTES + 1)):
-            self.response.read.return_value = body
+            self.response.read1.return_value = body
             with self.assertRaisesRegex(AIError, "response"):
                 self.provider.complete([])
-        self.response.read.assert_called_with(MAX_RESPONSE_BYTES + 1)
+        self.response.read1.assert_called_with(MAX_RESPONSE_BYTES + 1)
 
     def test_non_text_or_empty_content_is_rejected(self):
         for content in (None, "", "  ", 123, {}, [{"text": "Do not coerce"}]):
             with self.subTest(content_type=type(content).__name__):
-                self.response.read.return_value = self.response_body(content)
+                self.response.read1.return_value = self.response_body(content)
                 with self.assertRaisesRegex(AIError, "response"):
                     self.provider.complete([])
 
     def test_only_first_choice_is_used(self):
-        self.response.read.return_value = json.dumps({"choices": [
+        self.response.read1.return_value = json.dumps({"choices": [
             {"message": {"role": "assistant", "content": "First."}},
             {"message": {"role": "assistant", "content": "Second."}},
         ]}).encode()
@@ -148,7 +148,7 @@ class GeminiProviderTests(unittest.TestCase):
     def test_tool_and_legacy_function_calls_are_rejected(self):
         for fields in ({"tool_calls": [{"function": {"name": "shell", "arguments": "private"}}]},
                        {"function_call": {"name": "shell"}}):
-            self.response.read.return_value = self.response_body("Run something.", **fields)
+            self.response.read1.return_value = self.response_body("Run something.", **fields)
             with self.assertRaisesRegex(AIError, "response"):
                 self.provider.complete([])
 
@@ -171,7 +171,7 @@ class GeminiProviderTests(unittest.TestCase):
         self.assertEqual([message["content"] for message in service._history], ["second", "A concise answer."])
 
     def test_gemini_credentials_are_private_in_history_print_and_tts(self):
-        self.response.read.return_value = self.response_body("GeminiSyntheticCredential123 **Answer.**")
+        self.response.read1.return_value = self.response_body("GeminiSyntheticCredential123 **Answer.**")
         engine = MagicMock()
         callbacks = {}
         engine.connect.side_effect = lambda event, callback: callbacks.setdefault(event, callback)
@@ -220,7 +220,7 @@ class GeminiProviderTests(unittest.TestCase):
         self.assertEqual(self.service._history, [])
 
     def test_gemini_text_cannot_trigger_external_actions(self):
-        self.response.read.return_value = self.response_body("open google; email to Raj; run powershell")
+        self.response.read1.return_value = self.response_body("open google; email to Raj; run powershell")
         with patch.object(jarvis, "speak"), patch.object(jarvis.webbrowser, "open") as browser, \
                 patch.object(jarvis.os, "startfile", create=True) as launch, patch.object(jarvis, "sendEmail") as email:
             jarvis.handle_command("Explain something", ai=self.service)

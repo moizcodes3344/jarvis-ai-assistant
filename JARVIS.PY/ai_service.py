@@ -6,6 +6,7 @@ import json
 import os
 import re
 import socket
+import time
 from typing import Protocol
 
 
@@ -74,6 +75,41 @@ def close_connection(connection):
         pass
 
 
+class RequestBudget:
+    """Best-effort elapsed budget; cannot interrupt DNS or native blocking calls."""
+
+    def __init__(self, seconds):
+        self.deadline = time.monotonic() + seconds
+
+    def check(self, connection, response=None):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise AIError("timeout")
+        connection.timeout = remaining
+        sock = connection.sock
+        if sock is None and response is not None:
+            # CPython detaches connection.sock for Connection: close responses.
+            sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if sock is not None:
+            sock.settimeout(remaining)
+
+    def read(self, connection, response):
+        chunks, size = [], 0
+        while True:
+            self.check(connection, response)
+            chunk = response.read1(MAX_RESPONSE_BYTES + 1 - size)
+            self.check(connection, response)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise AIError("response")
+            chunks.append(chunk)
+            if response.isclosed():
+                break
+        return b"".join(chunks)
+
+
 class OpenAIProvider:
     """Fixed HTTPS endpoint; no redirects, retries, SDK, or generated tool calls."""
 
@@ -92,18 +128,22 @@ class OpenAIProvider:
             "store": False, "tools": [], "tool_choice": "none",
         }).encode("utf-8")
         connection = http.client.HTTPSConnection("api.openai.com", timeout=self.settings.timeout)
+        budget = RequestBudget(self.settings.timeout)
         try:
+            budget.check(connection)
             connection.request("POST", "/v1/responses", body=body, headers={
                 "Authorization": f"Bearer {key}", "Content-Type": "application/json",
             })
+            budget.check(connection)
             response = connection.getresponse()
+            budget.check(connection, response)
             if response.status in (401, 403):
                 raise AIError("credentials")
             if response.status == 429:
                 raise AIError("rate_limit")
             if response.status != 200:
                 raise AIError("unavailable")
-            data = response.read(MAX_RESPONSE_BYTES + 1)
+            data = budget.read(connection, response)
             if len(data) > MAX_RESPONSE_BYTES:
                 raise AIError("response")
             result = json.loads(data)
@@ -164,18 +204,22 @@ class GeminiProvider:
         connection = http.client.HTTPSConnection(
             "generativelanguage.googleapis.com", timeout=self.settings.timeout
         )
+        budget = RequestBudget(self.settings.timeout)
         try:
+            budget.check(connection)
             connection.request("POST", "/v1beta/openai/chat/completions", body=body, headers={
                 "Authorization": f"Bearer {key}", "Content-Type": "application/json",
             })
+            budget.check(connection)
             response = connection.getresponse()
+            budget.check(connection, response)
             if response.status in (401, 403):
                 raise AIError("credentials")
             if response.status == 429:
                 raise AIError("rate_limit")
             if response.status != 200:
                 raise AIError("unavailable")
-            data = response.read(MAX_RESPONSE_BYTES + 1)
+            data = budget.read(connection, response)
             if len(data) > MAX_RESPONSE_BYTES:
                 raise AIError("response")
             result = json.loads(data)

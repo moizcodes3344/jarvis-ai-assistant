@@ -34,7 +34,7 @@ class ProviderCleanupTests(unittest.TestCase):
                     connection.close.side_effect = OSError("synthetic private detail")
                     response = connection.getresponse.return_value
                     response.status = status
-                    response.read.return_value = json.dumps({
+                    response.read1.return_value = json.dumps({
                         "status": "completed", "output": [{"type": "message", "role": "assistant",
                             "content": [{"type": "output_text", "text": "Hello"}]}],
                         "choices": [{"message": {"role": "assistant", "content": "Hello"}}],

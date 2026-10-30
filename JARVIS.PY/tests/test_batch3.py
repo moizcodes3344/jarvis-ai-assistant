@@ -9,6 +9,60 @@ from unittest.mock import MagicMock, patch
 from test_stable_core import jarvis
 
 
+class RequestBudgetTests(unittest.TestCase):
+    def test_slow_streaming_shares_one_budget_and_shrinks_socket_timeout(self):
+        from ai_service import AIError, RequestBudget
+
+        now = [0.0]
+        connection, response = MagicMock(), MagicMock()
+        response.isclosed.return_value = False
+        def slow_chunk(amount):
+            now[0] += 4
+            return b"x"
+        response.read1.side_effect = slow_chunk
+        with patch("ai_service.time.monotonic", side_effect=lambda: now[0]):
+            budget = RequestBudget(10)
+            with self.assertRaisesRegex(AIError, "^timeout$"):
+                budget.read(connection, response)
+        self.assertEqual(response.read1.call_count, 3)
+        timeouts = [call.args[0] for call in connection.sock.settimeout.call_args_list]
+        self.assertEqual(timeouts, sorted(timeouts, reverse=True))
+
+    def test_exact_response_cap_and_detached_socket(self):
+        from ai_service import AIError, MAX_RESPONSE_BYTES, RequestBudget
+
+        for extra in (0, 1):
+            connection, response = MagicMock(), MagicMock()
+            connection.sock = None
+            response.read1.return_value = b"x" * (MAX_RESPONSE_BYTES + extra)
+            response.isclosed.return_value = True
+            budget = RequestBudget(10)
+            if extra:
+                with self.assertRaisesRegex(AIError, "^response$"):
+                    budget.read(connection, response)
+            else:
+                self.assertEqual(len(budget.read(connection, response)), MAX_RESPONSE_BYTES)
+            response.fp.raw._sock.settimeout.assert_called()
+
+    def test_delayed_headers_timeout_and_close_for_both_providers(self):
+        from ai_service import AIError, AISettings, GeminiProvider, OpenAIProvider
+
+        for provider in (OpenAIProvider, GeminiProvider):
+            now = [0.0]
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-key",
+                                        "GEMINI_API_KEY": "synthetic-key"}, clear=True), \
+                    patch("ai_service.time.monotonic", side_effect=lambda: now[0]), \
+                    patch("ai_service.http.client.HTTPSConnection") as transport:
+                connection = transport.return_value
+                def delayed_headers():
+                    now[0] = 20
+                    return MagicMock(status=200)
+                connection.getresponse.side_effect = delayed_headers
+                with self.assertRaisesRegex(AIError, "^timeout$"):
+                    provider(AISettings(timeout=10)).complete([])
+                connection.close.assert_called_once()
+
+
 def completed_engine():
     engine = MagicMock()
     callbacks = {}
