@@ -207,7 +207,21 @@ def redact_credentials(text):
     return text
 
 
+def safe_output_text(text):
+    """Remove terminal commands and overwrite controls without losing Unicode text."""
+    text = redact_credentials(text)
+    text = re.sub(r"(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c|$)", "", text)
+    text = re.sub(r"(?:\x1b[P^_]|[\x90\x9e\x9f]).*?(?:\x1b\\|\x9c|$)", "", text, flags=re.S)
+    text = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", text)
+    text = "".join(char for char in text if char in "\n\t" or (
+        ord(char) >= 32 and not 127 <= ord(char) <= 159
+        and char not in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
+    # Removing controls may reassemble a configured credential.
+    return redact_credentials(text)
+
+
 def voice_text(text, limit):
+    text = safe_output_text(text)
     text = redact_credentials(text)
     text = re.sub(r"```.*?(?:```|$)", " Code omitted. ", text, flags=re.S)
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)

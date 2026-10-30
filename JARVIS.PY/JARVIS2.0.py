@@ -21,7 +21,7 @@ import pyttsx3
 import speech_recognition as sr
 import wikipedia
 
-from ai_service import AIService, redact_credentials
+from ai_service import AIService, redact_credentials, safe_output_text
 
 Listener = sr.Recognizer()
 Listener.pause_threshold = 1
@@ -139,7 +139,7 @@ def report_error(context, error):
 
 def speak(audio):
     global engine
-    audio = redact_credentials(audio)
+    audio = safe_output_text(audio)
     print(f"Jarvis: {audio}")
     if not speech_enabled:
         return

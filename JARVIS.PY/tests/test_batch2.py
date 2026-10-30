@@ -20,6 +20,20 @@ EMAIL_ENV = {
 
 
 class OutputTests(unittest.TestCase):
+    def test_terminal_sequences_removed_without_losing_unicode(self):
+        from ai_service import safe_output_text, voice_text
+
+        unsafe = "\x1b[31mسلام\x1b[0m\x1b]0;title\x07\r\b\x00\x9b2J 🌟\u202e"
+        self.assertEqual(safe_output_text(unsafe), "سلام 🌟")
+        with patch.object(jarvis, "speech_enabled", False), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            jarvis.speak(unsafe)
+        self.assertEqual(output.getvalue(), "Jarvis: سلام 🌟\n")
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-value"}, clear=True):
+            split = "synthetic-\x1b[31mvalue"
+            self.assertEqual(safe_output_text(split), "[credential omitted]")
+            self.assertNotIn("synthetic-value", voice_text(split, 600))
+
     def test_wikipedia_summary_is_redacted_before_console_and_speech(self):
         synthetic = "synthetic-wiki-credential"
         with patch.dict(os.environ, {"GEMINI_API_KEY": synthetic}, clear=True), \
