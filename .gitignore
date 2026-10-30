@@ -36,3 +36,6 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# Isolated security tooling (not an application runtime dependency)
+.venv-audit/

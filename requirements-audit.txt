@@ -1,0 +1,3 @@
+# Isolated development/CI scanner; never install into the assistant runtime.
+pip-audit==2.10.1
+certifi==2026.10.23

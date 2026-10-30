@@ -54,3 +54,19 @@ Next investigations: SMTP non-success greeting return codes, dependency advisory
 review, optional audio installation, command negation safety and hardware recovery.
 These are follow-up candidates, not a preallocated number of future commits.
 The long-term 100+ target remains conditional on independently justified changes.
+
+
+## Approved third batch
+
+Implemented: runtime/installer certificate remediation; explicit HTTPS speech;
+negated action rejection; EHLO return-code checks; SMTP acceptance-aware cleanup;
+TTS cleanup invalidation; recognition timeout classification; shared best-effort
+AI budgets; nested-JSON response errors; and isolated pip-audit CI enforcement.
+Runtime dependencies other than certifi were not upgraded. The installer patch
+is directly related to the same certificate advisory. Audit-only dependencies
+are isolated, and both runtime and scanner inventories are audited.
+
+Next review: legacy Python 3.14 environment remediation before reuse, Windows
+hardware/voice HTTPS compatibility, additional command grammar, real HTTP framing
+faults and reproducible transitive dependency constraints. No future commits are
+preallocated to reach 100. Stop after reporting this batch; do not merge.

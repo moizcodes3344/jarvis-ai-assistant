@@ -545,3 +545,53 @@ history for those comparisons while leaving credential persistence disabled.
 Guarded CLI subprocess tests exercise startup, help, EOF, reset, dry runs and quit
 without allowing hardware, SMTP, browser or AI actions. Real hardware, live AI
 requests and Gmail delivery remain outside these automated checks.
+
+
+### Batch 3: transport safety and vulnerability auditing
+
+Runtime requirements pin certifi 2026.10.23 for GHSA-6q48-6c7w-9gw2.
+CI patches pip to 26.2.2, whose vendored certifi is 2026.10.19, before dependency
+installation. TLS verification and certificate files are never bypassed or edited.
+Existing environments need the security updates too; installing an application
+certifi wheel does not replace pip's vendored bundle. The old local Python 3.14
+`.venv` was inspected and still contains an outdated vendored bundle; it is not the
+validated runtime and must be patched/recreated before use. Use `.venv312` here.
+
+Google speech recognition explicitly selects HTTPS without HTTP fallback. No
+live compatibility, microphone or audio-service result is claimed. Endpoint
+failures stay recoverable; recognition timeouts preserve calibration while capture
+timeouts invalidate it. English negated actions such as `don't open google` and
+`do not play music` are handled locally. Mixed phrases with recognized negated
+actions perform no action. This is a narrow grammar, not general language intent
+understanding; use one clear command at a time.
+
+SMTP requires a 250 EHLO reply before and after TLS. Successful SMTP acceptance
+is reported separately from recipient delivery and from connection cleanup.
+Unconfirmed acceptance asks the user to check sent mail; nothing is automatically
+resent. TTS cleanup failures discard the engine so the next utterance can create
+a fresh one, while healthy engines remain reusable.
+
+AI transports share one best-effort monotonic budget across send, headers and
+bounded `read1` response chunks, with decreasing socket timeouts and the existing
+128 KiB response cap. CPython's detached response socket is used when available.
+DNS, TLS/native calls, header parsing and internal chunk parsing cannot always be
+interrupted at the exact deadline; a strict wall-clock bound is not promised.
+Deeply nested JSON becomes a sanitized response error and never enters history.
+
+Vulnerability checks use PyPA's maintained pip-audit 2.10.1, pinned in
+`requirements-audit.txt`. Tool dependencies live in an ignored `.venv-audit`
+environment, not the assistant runtime. CI installs and audits both inventories.
+Only public installed package names/versions are queried through PyPI's advisory
+API; no paid service or credential is required. The wrapper uses a disposable
+Windows profile/cache and does not pass application secrets to the scanner.
+Missing scanner/service, invalid JSON, empty inventory and skipped dependencies
+fail explicitly. Known advisories fail; no ignore list, automatic fix or upgrade
+mode is enabled. A successful audit cannot rule out unknown vulnerabilities.
+
+After creating `.venv-audit` and installing its pinned requirements with patched
+pip, run from the repository root:
+
+```powershell
+.\.venv-audit\Scripts\python.exe -B JARVIS.PY/tools/audit_dependencies.py --path .venv312/Lib/site-packages
+.\.venv-audit\Scripts\python.exe -B JARVIS.PY/tools/audit_dependencies.py --path .venv-audit/Lib/site-packages
+```
