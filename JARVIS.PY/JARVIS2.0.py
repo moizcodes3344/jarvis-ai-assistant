@@ -421,7 +421,7 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
 
 
 def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
-    global speech_enabled, input_failures, calibrated_microphone
+    global speech_enabled, input_failures, calibrated_microphone, engine
     input_failures = 0
     calibrated_microphone = None
     previous_speech = speech_enabled
@@ -468,6 +468,8 @@ def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
                 engine.stop()
             except Exception as error:
                 report_error("Speech engine cleanup failed", error)
+            finally:
+                engine = None
     return 0
 
 

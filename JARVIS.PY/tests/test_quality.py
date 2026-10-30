@@ -4,7 +4,7 @@ import contextlib
 import io
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from test_stable_core import jarvis
 
@@ -34,3 +34,18 @@ class EmailValidationTests(unittest.TestCase):
                 self.assertTrue(jarvis.handle_command("email to raj", input_fn=lambda: content))
                 confirm.assert_not_called()
                 send.assert_not_called()
+
+
+class LifecycleTests(unittest.TestCase):
+    def test_shutdown_discards_engine_even_when_stop_fails(self):
+        for error in (None, RuntimeError("synthetic cleanup detail")):
+            engine = MagicMock()
+            engine.stop.side_effect = error
+            with patch.object(jarvis, "engine", engine), patch.object(jarvis, "speak"), \
+                    patch.dict(os.environ, {}, clear=True), \
+                    patch("builtins.input", side_effect=EOFError), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(jarvis.main(text_mode=True, no_tts=True), 0)
+                self.assertIsNone(jarvis.engine)
+                self.assertNotIn("synthetic cleanup detail", output.getvalue())
+                engine.stop.assert_called_once()
