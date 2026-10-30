@@ -103,6 +103,8 @@ def command_for(query):
         return "exit"
     if shutdown in ("help", "commands", "what can you do"):
         return "help"
+    if shutdown in ("clear conversation", "reset conversation"):
+        return "reset_conversation"
     if has_phrase(query, "wikipedia"):
         return "wikipedia"
     for command, targets in (("youtube", ("youtube", "you tube")),
@@ -344,7 +346,12 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
         if command == "help":
             speak("Try time, open YouTube, open Google, open Stack Overflow, "
                   "Wikipedia followed by a topic, play music, open code, tell me a joke, "
-                  "email to Raj, or quit. Email requires configuration and confirmation.")
+                  "email to Raj, clear conversation, or quit. "
+                  "Email requires configuration and confirmation.")
+        elif command == "reset_conversation":
+            if ai is not None:
+                ai.clear()
+            speak("Local conversation history cleared. Provider records are unaffected.")
         elif command == "wikipedia":
             search_wikipedia(original_query)
         elif command == "youtube":

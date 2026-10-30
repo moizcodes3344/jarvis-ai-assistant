@@ -65,6 +65,24 @@ class LifecycleTests(unittest.TestCase):
 
 
 class LocalCommandTests(unittest.TestCase):
+    def test_reset_clears_history_without_network_or_external_actions(self):
+        from ai_service import AIService, AISettings
+
+        provider = MagicMock()
+        provider.complete.return_value = "A short answer."
+        ai = AIService(AISettings(), provider)
+        ai.reply("a question")
+        self.assertTrue(ai._history)
+        provider.reset_mock()
+        with patch.object(jarvis, "speak"), patch.object(jarvis, "sendEmail") as send:
+            for phrase in ("clear conversation", "please reset conversation"):
+                self.assertTrue(jarvis.handle_command(phrase, ai=ai, dry_run=True))
+                self.assertEqual(ai._history, [])
+            self.assertTrue(jarvis.handle_command("clear conversation", ai=None))
+            provider.complete.assert_not_called()
+            send.assert_not_called()
+        self.assertIsNone(jarvis.command_for("Explain how to reset conversation state"))
+
     def test_help_is_local_in_both_action_modes(self):
         for phrase in ("help", "please help", "Jarvis what can you do?", "commands"):
             for dry_run in (False, True):
