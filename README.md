@@ -467,3 +467,44 @@ $env:JARVIS_AI_PROVIDER = 'disabled'
 Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue
 Remove-Item Env:JARVIS_AI_MAX_OUTPUT_TOKENS -ErrorAction SilentlyContinue
 ```
+
+
+## Quality improvements and contributor checks
+
+The quality branch adds local `help` (also `commands` or `what can you do`) and
+`clear conversation` / `reset conversation`. These commands never call an AI
+provider. Reset removes only in-process history; it does not delete provider-side
+records. Other commands, explicit AI opt-in and email confirmation remain intact.
+
+Email configuration accepts one bare ASCII mailbox per sender/recipient field;
+display names, address lists and control characters are rejected before SMTP.
+Empty email dictation cancels before confirmation. Stopped speech engines are
+released between sessions. Importing `mic_test.py` no longer opens a microphone;
+running it directly retains its original device-1 diagnostic behavior.
+
+Run from the repository root using the existing Python 3.12 environment:
+
+```powershell
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py
+.\.venv312\Scripts\python.exe -B -m unittest discover -s JARVIS.PY/tests -v
+.\.venv312\Scripts\python.exe -m compileall -q JARVIS.PY
+git diff --check
+```
+
+The dependency-free validator checks Git publication candidates for Python syntax,
+trailing whitespace, final newlines, merge markers, private/generated paths and
+common credential signatures. Diagnostics omit source and credential values.
+It complements manual review; it is not a complete secret detector or type checker.
+No formatter, third-party linter or type checker is currently installed/configured.
+
+The Windows Python 3.12 GitHub Actions workflow runs these checks and mocked tests.
+It uses read-only repository permissions, immutable action revisions, no persisted
+checkout credentials and no API secrets. CI installs the existing requirements on
+its runner; no new local dependencies are required. Its `.yml` uses JSON syntax,
+which is valid YAML, so its structure can also be parsed with Python's standard
+library. Hosted CI results must be checked after pushing.
+
+The locally verified quality batch has 88 passing tests (76 original plus 12 new).
+These remain mocked: microphone accuracy, speaker audibility, live providers,
+Gmail delivery and hosted CI are not established by local regression results.
+See [the prioritized roadmap](JARVIS.PY/QUALITY_ROADMAP.md) for remaining work.
