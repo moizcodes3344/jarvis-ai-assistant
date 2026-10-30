@@ -10,6 +10,8 @@ import smtplib
 import ssl
 import time
 import webbrowser
+from email.message import EmailMessage
+from email.policy import SMTP
 from functools import partial
 from types import SimpleNamespace
 
@@ -285,12 +287,16 @@ def sendEmail(to, content):
             raise ValueError("Email address configuration is invalid")
     if not content:
         raise ValueError("Email content is empty")
+    message = EmailMessage()
+    message["From"] = address
+    message["To"] = to
+    message.set_content(content, charset="utf-8", cte="quoted-printable")
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
         server.ehlo()
         server.starttls(context=ssl.create_default_context())
         server.ehlo()
         server.login(address, password)
-        server.sendmail(address, to, content)
+        server.sendmail(address, to, message.as_bytes(policy=SMTP))
 
 
 def search_wikipedia(query):
