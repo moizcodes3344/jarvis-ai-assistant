@@ -101,6 +101,8 @@ def command_for(query):
     shutdown = re.sub(r"^(?:jarvis |please )+|(?: please)+$", "", query)
     if shutdown in ("exit", "quit"):
         return "exit"
+    if shutdown in ("help", "commands", "what can you do"):
+        return "help"
     if has_phrase(query, "wikipedia"):
         return "wikipedia"
     for command, targets in (("youtube", ("youtube", "you tube")),
@@ -339,7 +341,11 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
         print(f"Dry run: {command}; external action skipped.")
         return True
     try:
-        if command == "wikipedia":
+        if command == "help":
+            speak("Try time, open YouTube, open Google, open Stack Overflow, "
+                  "Wikipedia followed by a topic, play music, open code, tell me a joke, "
+                  "email to Raj, or quit. Email requires configuration and confirmation.")
+        elif command == "wikipedia":
             search_wikipedia(original_query)
         elif command == "youtube":
             open_website("https://www.youtube.com")

@@ -62,3 +62,16 @@ class LifecycleTests(unittest.TestCase):
                 self.assertIsNone(jarvis.engine)
                 self.assertNotIn("synthetic cleanup detail", output.getvalue())
                 engine.stop.assert_called_once()
+
+
+class LocalCommandTests(unittest.TestCase):
+    def test_help_is_local_in_both_action_modes(self):
+        for phrase in ("help", "please help", "Jarvis what can you do?", "commands"):
+            for dry_run in (False, True):
+                ai = MagicMock()
+                with self.subTest(phrase=phrase, dry_run=dry_run), \
+                        patch.object(jarvis, "speak") as speak:
+                    self.assertTrue(jarvis.handle_command(phrase, dry_run=dry_run, ai=ai))
+                    self.assertIn("confirmation", speak.call_args.args[0])
+                    ai.reply.assert_not_called()
+        self.assertIsNone(jarvis.command_for("Explain help desk software"))
