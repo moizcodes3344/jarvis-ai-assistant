@@ -508,3 +508,40 @@ The locally verified quality batch has 88 passing tests (76 original plus 12 new
 These remain mocked: microphone accuracy, speaker audibility, live providers,
 Gmail delivery and hosted CI are not established by local regression results.
 See [the prioritized roadmap](JARVIS.PY/QUALITY_ROADMAP.md) for remaining work.
+
+
+### Batch 2: email, output privacy and publication checks
+
+Email bodies now use UTF-8 MIME with ASCII-safe quoted-printable encoding.
+If the terminal cannot provide hidden email input, the assistant cancels instead
+of allowing getpass to fall back to visible input. SMTP TLS/EHLO exception tests
+verify that authentication and delivery do not follow a failed transport step.
+
+Wikipedia summaries use the credential-redacting speech/console path. Assistant
+output removes terminal escape sequences, overwrite controls and bidi override
+controls while retaining ordinary Unicode text. Connection-close failures cannot
+override an AI request result or its sanitized failure category.
+
+The validator now supports exact index bytes, including partially staged files:
+
+```powershell
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py --staged
+.\.venv312\Scripts\python.exe -m pip check
+.\.venv312\Scripts\python.exe -m tabnanny JARVIS.PY
+```
+
+Use both validator modes before committing. The staged mode scans all regular
+index blobs; it rejects unresolved merges and non-regular entries for manual
+review. File/Git failures produce redacted diagnostics and a failing exit code.
+Credential fields in `.env.example` must be blank or explicit placeholders such
+as `YOUR_API_KEY` or `REPLACE_ME`; quoted blanks and comments are supported.
+These checks remain heuristics, not a guarantee that all sensitive data is absent.
+
+CI also runs `python -m pip check` after installing the existing requirements.
+Committed whitespace is checked across actual push/PR ranges using event SHAs;
+new branches and manual runs compare against `origin/main`. Checkout fetches
+history for those comparisons while leaving credential persistence disabled.
+Guarded CLI subprocess tests exercise startup, help, EOF, reset, dry runs and quit
+without allowing hardware, SMTP, browser or AI actions. Real hardware, live AI
+requests and Gmail delivery remain outside these automated checks.

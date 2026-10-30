@@ -39,3 +39,18 @@ its own meaningful commit. The roadmap is a planning artifact, not a promise of
 Do not add wake-word capture, autonomous tools, paid services or persistent
 personal data as incidental quality work. Hardware and live services are not
 validated by mocked tests. Existing commit identities remain unchanged.
+
+
+## Approved second batch
+
+Implemented as focused changes with regression coverage where appropriate:
+Unicode MIME email; hidden-input cancellation; Wikipedia redaction; terminal
+control sanitization; AI cleanup error preservation; exact staged-blob scanning;
+redacted validator failures; credential-placeholder validation; SMTP TLS/EHLO
+failure regressions; guarded CLI processes; actual CI commit-range checks; and
+CI dependency consistency checks. No new runtime dependencies were introduced.
+
+Next investigations: SMTP non-success greeting return codes, dependency advisory
+review, optional audio installation, command negation safety and hardware recovery.
+These are follow-up candidates, not a preallocated number of future commits.
+The long-term 100+ target remains conditional on independently justified changes.
