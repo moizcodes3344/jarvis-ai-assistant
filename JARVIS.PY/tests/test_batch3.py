@@ -10,6 +10,27 @@ from test_stable_core import jarvis
 
 
 class SMTPResponseTests(unittest.TestCase):
+    def test_acceptance_is_preserved_after_quit_failure(self):
+        for cleanup_error in (None, jarvis.smtplib.SMTPResponseException(500, b"synthetic detail")):
+            with patch.dict(os.environ, {"JARVIS_EMAIL_ADDRESS": "sender@example.com",
+                                        "JARVIS_EMAIL_PASSWORD": "synthetic-password"}, clear=True), \
+                    patch.object(jarvis.smtplib, "SMTP") as smtp:
+                server = smtp.return_value.__enter__.return_value
+                server.ehlo.return_value = (250, b"ok")
+                smtp.return_value.__exit__.side_effect = cleanup_error
+                expected = "accepted_cleanup_failed" if cleanup_error else "accepted"
+                self.assertEqual(jarvis.sendEmail("recipient@example.com", "body"), expected)
+                server.sendmail.assert_called_once()
+        with patch.dict(os.environ, {"JARVIS_EMAIL_ADDRESS": "sender@example.com",
+                                    "JARVIS_EMAIL_PASSWORD": "synthetic-password"}, clear=True), \
+                patch.object(jarvis.smtplib, "SMTP") as smtp:
+            server = smtp.return_value.__enter__.return_value
+            server.ehlo.return_value = (250, b"ok")
+            server.sendmail.side_effect = TimeoutError()
+            with self.assertRaises(TimeoutError):
+                jarvis.sendEmail("recipient@example.com", "body")
+            server.sendmail.assert_called_once()
+
     def test_returned_greeting_errors_stop_authentication(self):
         for replies in ([(550, b"synthetic refusal")],
                         [(250, b"ok"), (421, b"synthetic refusal")]):

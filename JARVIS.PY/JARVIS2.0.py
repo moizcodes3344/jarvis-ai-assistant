@@ -319,12 +319,20 @@ def sendEmail(to, content):
     message["From"] = address
     message["To"] = to
     message.set_content(content, charset="utf-8", cte="quoted-printable")
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-        require_smtp_greeting(server)
-        server.starttls(context=ssl.create_default_context())
-        require_smtp_greeting(server)
-        server.login(address, password)
-        server.sendmail(address, to, message.as_bytes(policy=SMTP))
+    accepted = False
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            require_smtp_greeting(server)
+            server.starttls(context=ssl.create_default_context())
+            require_smtp_greeting(server)
+            server.login(address, password)
+            server.sendmail(address, to, message.as_bytes(policy=SMTP))
+            accepted = True
+    except Exception:
+        if not accepted:
+            raise
+        return "accepted_cleanup_failed"
+    return "accepted"
 
 
 def search_wikipedia(query):
@@ -448,12 +456,14 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
                     return True
                 try:
                     print("Sending email...")
-                    sendEmail(recipient, content)
+                    outcome = sendEmail(recipient, content)
                 except Exception as error:
                     report_error("Email delivery failed", error)
-                    speak("Sorry, I could not send this email.")
+                    speak("Email acceptance could not be confirmed. Check sent mail before trying again.")
                 else:
-                    speak("Email has been sent, sir!")
+                    speak("SMTP server accepted the email; recipient delivery is not confirmed.")
+                    if outcome == "accepted_cleanup_failed":
+                        speak("Connection cleanup failed after acceptance. Do not resend automatically.")
         elif command == "conversation":
             speak("I am in a relationship with wifi")
         elif command == "joke":
