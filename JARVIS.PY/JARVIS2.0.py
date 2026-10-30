@@ -339,8 +339,7 @@ def search_wikipedia(query):
         speak("Wikipedia is unavailable right now. Please try again later.")
     else:
         speak("According to Wikipedia")
-        print(results)
-        speak(results)
+        speak(redact_credentials(results))
 
 
 def open_website(url):

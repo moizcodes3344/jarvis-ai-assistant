@@ -19,6 +19,20 @@ EMAIL_ENV = {
 }
 
 
+class OutputTests(unittest.TestCase):
+    def test_wikipedia_summary_is_redacted_before_console_and_speech(self):
+        synthetic = "synthetic-wiki-credential"
+        with patch.dict(os.environ, {"GEMINI_API_KEY": synthetic}, clear=True), \
+                patch.object(jarvis.wikipedia, "summary", return_value="Answer " + synthetic), \
+                patch.object(jarvis, "speech_enabled", False), \
+                patch.object(jarvis, "speak", wraps=jarvis.speak) as speak, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            jarvis.search_wikipedia("wikipedia topic")
+            self.assertNotIn(synthetic, output.getvalue())
+            self.assertNotIn(synthetic, str(speak.call_args_list))
+            self.assertIn("Answer [credential omitted]", output.getvalue())
+
+
 class EmailTests(unittest.TestCase):
     def test_hidden_input_warning_prevents_visible_fallback(self):
         fallback = MagicMock()
