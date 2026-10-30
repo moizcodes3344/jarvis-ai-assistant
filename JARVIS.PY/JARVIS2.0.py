@@ -10,6 +10,7 @@ import smtplib
 import ssl
 import time
 import webbrowser
+import warnings
 from email.message import EmailMessage
 from email.policy import SMTP
 from functools import partial
@@ -273,6 +274,17 @@ def takeCommand(sensitive=False):
     return None
 
 
+def read_email_message():
+    """Never let getpass fall back to echoing a private email body."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            return getpass.getpass("Email message (hidden)> ")
+    except (getpass.GetPassWarning, EOFError, OSError):
+        print("Secure email input unavailable; email cancelled.")
+        return None
+
+
 def sendEmail(to, content):
     address = os.getenv("JARVIS_EMAIL_ADDRESS", "").strip()
     password = os.getenv("JARVIS_EMAIL_PASSWORD", "")
@@ -471,7 +483,7 @@ def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
                 continue
             if text_mode:
                 keep_running = handle_command(query, dry_run=not execute,
-                                              input_fn=lambda: getpass.getpass("Email message (hidden)> "),
+                                              input_fn=read_email_message,
                                               ai=ai, confirm_fn=lambda: input("Confirmation> "))
             else:
                 keep_running = handle_command(query, ai=ai)
