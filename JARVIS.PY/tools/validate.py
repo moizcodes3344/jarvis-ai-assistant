@@ -48,13 +48,14 @@ def check_content(data, relative):
     path = Path(relative)
     parts = Path(relative).parts
     issues = []
-    if any(part in {".venv", ".venv312", "venv", "env", "__pycache__"}
+    if any(part in {".venv", ".venv312", ".venv-audit", "venv", "env", "__pycache__"}
            or (part.startswith(".env") and part != ".env.example") for part in parts):
         issues.append((relative, 1, "private or generated file"))
     if path.suffix.lower() in PRIVATE_SUFFIXES:
         issues.append((relative, 1, "private key container"))
     try:
-        text = data.decode("utf-8")
+        # UTF-8 BOM is valid in Python source and common in Windows editors.
+        text = data.decode("utf-8-sig")
     except UnicodeError:
         return issues + [(relative, 1, "binary file requires manual review")]
     for number, line in enumerate(text.splitlines(), 1):

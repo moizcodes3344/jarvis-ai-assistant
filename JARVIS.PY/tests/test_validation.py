@@ -82,9 +82,18 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual({i[2] for i in issues}, {"trailing whitespace", "Python syntax error"})
 
     def test_private_paths_fail_even_without_secret_signatures(self):
-        for name in (".env", "local/.env.production", ".venv/activate.py", "private.pem"):
+        for name in (".env", "local/.env.production", ".venv/activate.py",
+                     ".venv-audit/Lib/site-packages/sample.py", "private.pem"):
             with self.subTest(name=name):
                 self.assertTrue(self.check("", name))
+
+    def test_utf8_bom_python_is_valid_and_does_not_hide_secret_patterns(self):
+        self.assertEqual(validation.check_content(b'\xef\xbb\xbfprint("safe")\n', "sample.py"), [])
+        synthetic = "sk-" + "aB3d" * 10
+        issues = validation.check_content(
+            ('\ufeffVALUE = "' + synthetic + '"\n').encode("utf-8"), "sample.py")
+        self.assertEqual(issues, [("sample.py", 1, "credential pattern")])
+        self.assertNotIn(synthetic, str(issues))
 
     def test_placeholder_example_and_valid_python_pass(self):
         self.assertEqual(self.check("OPENAI_API_KEY=\n", ".env.example"), [])
