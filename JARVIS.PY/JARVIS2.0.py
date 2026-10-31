@@ -10,6 +10,9 @@ import smtplib
 import ssl
 import time
 import webbrowser
+import warnings
+from email.message import EmailMessage
+from email.policy import SMTP
 from functools import partial
 from types import SimpleNamespace
 
@@ -18,7 +21,7 @@ import pyttsx3
 import speech_recognition as sr
 import wikipedia
 
-from ai_service import AIService, redact_credentials
+from ai_service import AIService, redact_credentials, safe_output_text
 
 Listener = sr.Recognizer()
 Listener.pause_threshold = 1
@@ -28,6 +31,7 @@ engine = None
 calibrated_microphone = None
 input_failures = 0
 speech_enabled = True
+GOOGLE_RECOGNITION_ENDPOINT = "https://www.google.com/speech-api/v2/recognize"
 
 
 def number_setting(name, default, minimum, maximum, integer=False):
@@ -97,10 +101,21 @@ def has_phrase(query, *phrases):
 def command_for(query):
     """Match only the existing allowlisted commands; never execute input as code."""
     query = normalize_query(query)
+    # A negated action is handled locally, never executed or forwarded to AI.
+    if re.search(
+        r"\b(?:dont|do not|never|not|cannot|cant|shouldnt|should not|must not)\s+"
+        r"(?:(?:please|ever|actually)\s+)*(?:open|launch|start|play|send|email|search|clear|reset|exit|quit)\b",
+        query,
+    ):
+        return "negated_action"
     # Polite wrappers are safe only around exact shutdown commands.
     shutdown = re.sub(r"^(?:jarvis |please )+|(?: please)+$", "", query)
     if shutdown in ("exit", "quit"):
         return "exit"
+    if shutdown in ("help", "commands", "what can you do"):
+        return "help"
+    if shutdown in ("clear conversation", "reset conversation"):
+        return "reset_conversation"
     if has_phrase(query, "wikipedia"):
         return "wikipedia"
     for command, targets in (("youtube", ("youtube", "you tube")),
@@ -132,7 +147,7 @@ def report_error(context, error):
 
 def speak(audio):
     global engine
-    audio = redact_credentials(audio)
+    audio = safe_output_text(audio)
     print(f"Jarvis: {audio}")
     if not speech_enabled:
         return
@@ -140,6 +155,7 @@ def speak(audio):
     connections = []
     completion = []
     errors = []
+    cleanup_failed = False
     try:
         if engine is None:
             engine = pyttsx3.init("sapi5")
@@ -185,13 +201,15 @@ def speak(audio):
                 try:
                     engine.endLoop()
                 except Exception as error:
+                    cleanup_failed = True
                     report_error("Speech loop cleanup failed", error)
             for connection in connections:
                 try:
                     engine.disconnect(connection)
                 except Exception as error:
+                    cleanup_failed = True
                     report_error("Speech callback cleanup failed", error)
-            if not completion or not completion[-1] or errors:
+            if cleanup_failed or not completion or not completion[-1] or errors:
                 engine = None
 
 
@@ -210,6 +228,7 @@ def takeCommand(sensitive=False):
     """Return recognized speech, or None after a recoverable input failure."""
     global calibrated_microphone, input_failures
     settings = None
+    recognition_started = False
     try:
         settings = voice_settings()
         Listener.operation_timeout = settings["service_timeout"]
@@ -236,7 +255,10 @@ def takeCommand(sensitive=False):
             audio = Listener.listen(source, timeout=settings["timeout"],
                                     phrase_time_limit=settings["phrase_limit"])
         print("Recognizing...")
-        query = Listener.recognize_google(audio, language=settings["language"]).strip()
+        recognition_started = True
+        query = Listener.recognize_google(
+            audio, language=settings["language"], endpoint=GOOGLE_RECOGNITION_ENDPOINT,
+        ).strip()
         # Dictated email may contain sensitive content: do not log transcripts.
         print("Command recognized." if query else "No speech recognized.")
         if query:
@@ -247,6 +269,12 @@ def takeCommand(sensitive=False):
         print("No speech detected. Listening again shortly.")
     except sr.UnknownValueError:
         print("Could not understand speech. Please repeat your command.")
+    except TimeoutError as error:
+        if recognition_started:
+            report_error("Speech recognition service timed out", error)
+        else:
+            report_error("Microphone capture timed out", error)
+            calibrated_microphone = None
     except sr.RequestError as error:
         report_error("Speech recognition service unavailable", error)
         if input_failures == 0:
@@ -267,19 +295,55 @@ def takeCommand(sensitive=False):
     return None
 
 
+def read_email_message():
+    """Never let getpass fall back to echoing a private email body."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            return getpass.getpass("Email message (hidden)> ")
+    except (getpass.GetPassWarning, EOFError, OSError):
+        print("Secure email input unavailable; email cancelled.")
+        return None
+
+
+def require_smtp_greeting(server):
+    code, _ = server.ehlo()
+    if code != 250:
+        raise smtplib.SMTPHeloError(code, b"SMTP greeting rejected")
+
+
 def sendEmail(to, content):
     address = os.getenv("JARVIS_EMAIL_ADDRESS", "").strip()
     password = os.getenv("JARVIS_EMAIL_PASSWORD", "")
     if not address or not password or not to:
         raise ValueError("Email configuration is missing")
+    # Accept one bare ASCII mailbox per envelope field, never SMTP control text.
+    for mailbox in (address, to):
+        if not isinstance(mailbox, str) or not re.fullmatch(
+            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?",
+            mailbox,
+        ):
+            raise ValueError("Email address configuration is invalid")
     if not content:
         raise ValueError("Email content is empty")
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-        server.ehlo()
-        server.starttls(context=ssl.create_default_context())
-        server.ehlo()
-        server.login(address, password)
-        server.sendmail(address, to, content)
+    message = EmailMessage()
+    message["From"] = address
+    message["To"] = to
+    message.set_content(content, charset="utf-8", cte="quoted-printable")
+    accepted = False
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            require_smtp_greeting(server)
+            server.starttls(context=ssl.create_default_context())
+            require_smtp_greeting(server)
+            server.login(address, password)
+            server.sendmail(address, to, message.as_bytes(policy=SMTP))
+            accepted = True
+    except Exception:
+        if not accepted:
+            raise
+        return "accepted_cleanup_failed"
+    return "accepted"
 
 
 def search_wikipedia(query):
@@ -310,8 +374,7 @@ def search_wikipedia(query):
         speak("Wikipedia is unavailable right now. Please try again later.")
     else:
         speak("According to Wikipedia")
-        print(results)
-        speak(results)
+        speak(redact_credentials(results))
 
 
 def open_website(url):
@@ -332,7 +395,18 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
         print(f"Dry run: {command}; external action skipped.")
         return True
     try:
-        if command == "wikipedia":
+        if command == "negated_action":
+            speak("No action taken. Please give one clear positive command if you want an action.")
+        elif command == "help":
+            speak("Try time, open YouTube, open Google, open Stack Overflow, "
+                  "Wikipedia followed by a topic, play music, open code, tell me a joke, "
+                  "email to Raj, clear conversation, or quit. "
+                  "Email requires configuration and confirmation.")
+        elif command == "reset_conversation":
+            if ai is not None:
+                ai.clear()
+            speak("Local conversation history cleared. Provider records are unaffected.")
+        elif command == "wikipedia":
             search_wikipedia(original_query)
         elif command == "youtube":
             open_website("https://www.youtube.com")
@@ -377,7 +451,7 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
                 return True
             speak("What should I say, sir?")
             content = input_fn() if input_fn else takeCommand(sensitive=True)
-            if content is None:
+            if content is None or not content.strip():
                 speak("Email cancelled because no message was recognized.")
             elif command_for(content) == "exit":
                 speak("Goodbye, sir.")
@@ -393,12 +467,14 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
                     return True
                 try:
                     print("Sending email...")
-                    sendEmail(recipient, content)
+                    outcome = sendEmail(recipient, content)
                 except Exception as error:
                     report_error("Email delivery failed", error)
-                    speak("Sorry, I could not send this email.")
+                    speak("Email acceptance could not be confirmed. Check sent mail before trying again.")
                 else:
-                    speak("Email has been sent, sir!")
+                    speak("SMTP server accepted the email; recipient delivery is not confirmed.")
+                    if outcome == "accepted_cleanup_failed":
+                        speak("Connection cleanup failed after acceptance. Do not resend automatically.")
         elif command == "conversation":
             speak("I am in a relationship with wifi")
         elif command == "joke":
@@ -414,7 +490,7 @@ def handle_command(query, dry_run=False, input_fn=None, ai=None, confirm_fn=None
 
 
 def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
-    global speech_enabled, input_failures, calibrated_microphone
+    global speech_enabled, input_failures, calibrated_microphone, engine
     input_failures = 0
     calibrated_microphone = None
     previous_speech = speech_enabled
@@ -445,7 +521,7 @@ def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
                 continue
             if text_mode:
                 keep_running = handle_command(query, dry_run=not execute,
-                                              input_fn=lambda: getpass.getpass("Email message (hidden)> "),
+                                              input_fn=read_email_message,
                                               ai=ai, confirm_fn=lambda: input("Confirmation> "))
             else:
                 keep_running = handle_command(query, ai=ai)
@@ -461,6 +537,8 @@ def main(text_mode=False, no_tts=False, execute=False, tts_test=False):
                 engine.stop()
             except Exception as error:
                 report_error("Speech engine cleanup failed", error)
+            finally:
+                engine = None
     return 0
 
 

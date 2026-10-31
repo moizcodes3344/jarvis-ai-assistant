@@ -1,0 +1,95 @@
+"""Focused quality regressions; external actions and hardware are mocked."""
+
+import contextlib
+import io
+import importlib.util
+import os
+from pathlib import Path
+import unittest
+from unittest.mock import MagicMock, patch
+
+from test_stable_core import jarvis
+
+
+class EmailValidationTests(unittest.TestCase):
+    def test_invalid_envelope_never_connects_or_echoes_configuration(self):
+        for mailbox in ("bad\r\nRCPT TO: other@example.com", "a@example.com,b@example.com",
+                        "display <a@example.com>", "missing-at", "a@", "é@example.com"):
+            for field in ("sender", "recipient"):
+                with self.subTest(field=field), patch.dict(os.environ, {
+                    "JARVIS_EMAIL_ADDRESS": mailbox if field == "sender" else "a@example.com",
+                    "JARVIS_EMAIL_PASSWORD": "synthetic-password",
+                }, clear=True), patch.object(jarvis.smtplib, "SMTP") as smtp:
+                    with self.assertRaisesRegex(ValueError, "^Email address configuration is invalid$"):
+                        jarvis.sendEmail(mailbox if field == "recipient" else "b@example.com", "body")
+                    smtp.assert_not_called()
+
+    def test_blank_message_cancels_without_confirmation(self):
+        for content in (None, "", " \t\n"):
+            with self.subTest(content=content), patch.dict(os.environ, {
+                "JARVIS_EMAIL_ADDRESS": "a@example.com",
+                "JARVIS_EMAIL_TO": "b@example.com",
+                "JARVIS_EMAIL_PASSWORD": "synthetic-password",
+            }, clear=True), patch.object(jarvis, "speak"), \
+                    patch.object(jarvis, "sendEmail") as send, \
+                    patch.object(jarvis, "takeCommand") as confirm:
+                self.assertTrue(jarvis.handle_command("email to raj", input_fn=lambda: content))
+                confirm.assert_not_called()
+                send.assert_not_called()
+
+
+class LifecycleTests(unittest.TestCase):
+    def test_microphone_diagnostic_import_does_not_capture(self):
+        path = Path(__file__).resolve().parents[1] / "mic_test.py"
+        spec = importlib.util.spec_from_file_location("mic_diagnostic", path)
+        module = importlib.util.module_from_spec(spec)
+        with patch.object(jarvis.sr, "Microphone") as microphone, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            spec.loader.exec_module(module)
+            microphone.assert_not_called()
+            self.assertEqual(output.getvalue(), "")
+            self.assertTrue(callable(module.main))
+
+    def test_shutdown_discards_engine_even_when_stop_fails(self):
+        for error in (None, RuntimeError("synthetic cleanup detail")):
+            engine = MagicMock()
+            engine.stop.side_effect = error
+            with patch.object(jarvis, "engine", engine), patch.object(jarvis, "speak"), \
+                    patch.dict(os.environ, {}, clear=True), \
+                    patch("builtins.input", side_effect=EOFError), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(jarvis.main(text_mode=True, no_tts=True), 0)
+                self.assertIsNone(jarvis.engine)
+                self.assertNotIn("synthetic cleanup detail", output.getvalue())
+                engine.stop.assert_called_once()
+
+
+class LocalCommandTests(unittest.TestCase):
+    def test_reset_clears_history_without_network_or_external_actions(self):
+        from ai_service import AIService, AISettings
+
+        provider = MagicMock()
+        provider.complete.return_value = "A short answer."
+        ai = AIService(AISettings(), provider)
+        ai.reply("a question")
+        self.assertTrue(ai._history)
+        provider.reset_mock()
+        with patch.object(jarvis, "speak"), patch.object(jarvis, "sendEmail") as send:
+            for phrase in ("clear conversation", "please reset conversation"):
+                self.assertTrue(jarvis.handle_command(phrase, ai=ai, dry_run=True))
+                self.assertEqual(ai._history, [])
+            self.assertTrue(jarvis.handle_command("clear conversation", ai=None))
+            provider.complete.assert_not_called()
+            send.assert_not_called()
+        self.assertIsNone(jarvis.command_for("Explain how to reset conversation state"))
+
+    def test_help_is_local_in_both_action_modes(self):
+        for phrase in ("help", "please help", "Jarvis what can you do?", "commands"):
+            for dry_run in (False, True):
+                ai = MagicMock()
+                with self.subTest(phrase=phrase, dry_run=dry_run), \
+                        patch.object(jarvis, "speak") as speak:
+                    self.assertTrue(jarvis.handle_command(phrase, dry_run=dry_run, ai=ai))
+                    self.assertIn("confirmation", speak.call_args.args[0])
+                    ai.reply.assert_not_called()
+        self.assertIsNone(jarvis.command_for("Explain help desk software"))

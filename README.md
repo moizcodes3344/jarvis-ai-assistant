@@ -467,3 +467,131 @@ $env:JARVIS_AI_PROVIDER = 'disabled'
 Remove-Item Env:GEMINI_API_KEY -ErrorAction SilentlyContinue
 Remove-Item Env:JARVIS_AI_MAX_OUTPUT_TOKENS -ErrorAction SilentlyContinue
 ```
+
+
+## Quality improvements and contributor checks
+
+The quality branch adds local `help` (also `commands` or `what can you do`) and
+`clear conversation` / `reset conversation`. These commands never call an AI
+provider. Reset removes only in-process history; it does not delete provider-side
+records. Other commands, explicit AI opt-in and email confirmation remain intact.
+
+Email configuration accepts one bare ASCII mailbox per sender/recipient field;
+display names, address lists and control characters are rejected before SMTP.
+Empty email dictation cancels before confirmation. Stopped speech engines are
+released between sessions. Importing `mic_test.py` no longer opens a microphone;
+running it directly retains its original device-1 diagnostic behavior.
+
+Run from the repository root using the existing Python 3.12 environment:
+
+```powershell
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py
+.\.venv312\Scripts\python.exe -B -m unittest discover -s JARVIS.PY/tests -v
+.\.venv312\Scripts\python.exe -m compileall -q JARVIS.PY
+git diff --check
+```
+
+The dependency-free validator checks Git publication candidates for Python syntax,
+trailing whitespace, final newlines, merge markers, private/generated paths and
+common credential signatures. Diagnostics omit source and credential values.
+It complements manual review; it is not a complete secret detector or type checker.
+No formatter, third-party linter or type checker is currently installed/configured.
+
+The Windows Python 3.12 GitHub Actions workflow runs these checks and mocked tests.
+It uses read-only repository permissions, immutable action revisions, no persisted
+checkout credentials and no API secrets. CI installs the existing requirements on
+its runner; no new local dependencies are required. Its `.yml` uses JSON syntax,
+which is valid YAML, so its structure can also be parsed with Python's standard
+library. Hosted CI results must be checked after pushing.
+
+The locally verified quality batch has 88 passing tests (76 original plus 12 new).
+These remain mocked: microphone accuracy, speaker audibility, live providers,
+Gmail delivery and hosted CI are not established by local regression results.
+See [the prioritized roadmap](JARVIS.PY/QUALITY_ROADMAP.md) for remaining work.
+
+
+### Batch 2: email, output privacy and publication checks
+
+Email bodies now use UTF-8 MIME with ASCII-safe quoted-printable encoding.
+If the terminal cannot provide hidden email input, the assistant cancels instead
+of allowing getpass to fall back to visible input. SMTP TLS/EHLO exception tests
+verify that authentication and delivery do not follow a failed transport step.
+
+Wikipedia summaries use the credential-redacting speech/console path. Assistant
+output removes terminal escape sequences, overwrite controls and bidi override
+controls while retaining ordinary Unicode text. Connection-close failures cannot
+override an AI request result or its sanitized failure category.
+
+The validator now supports exact index bytes, including partially staged files:
+
+```powershell
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py
+.\.venv312\Scripts\python.exe -B JARVIS.PY/tools/validate.py --staged
+.\.venv312\Scripts\python.exe -m pip check
+.\.venv312\Scripts\python.exe -m tabnanny JARVIS.PY
+```
+
+Use both validator modes before committing. The staged mode scans all regular
+index blobs; it rejects unresolved merges and non-regular entries for manual
+review. File/Git failures produce redacted diagnostics and a failing exit code.
+Credential fields in `.env.example` must be blank or explicit placeholders such
+as `YOUR_API_KEY` or `REPLACE_ME`; quoted blanks and comments are supported.
+These checks remain heuristics, not a guarantee that all sensitive data is absent.
+
+CI also runs `python -m pip check` after installing the existing requirements.
+Committed whitespace is checked across actual push/PR ranges using event SHAs;
+new branches and manual runs compare against `origin/main`. Checkout fetches
+history for those comparisons while leaving credential persistence disabled.
+Guarded CLI subprocess tests exercise startup, help, EOF, reset, dry runs and quit
+without allowing hardware, SMTP, browser or AI actions. Real hardware, live AI
+requests and Gmail delivery remain outside these automated checks.
+
+
+### Batch 3: transport safety and vulnerability auditing
+
+Runtime requirements pin certifi 2026.10.23 for GHSA-6q48-6c7w-9gw2.
+CI patches pip to 26.2.2, whose vendored certifi is 2026.10.19, before dependency
+installation. TLS verification and certificate files are never bypassed or edited.
+Existing environments need the security updates too; installing an application
+certifi wheel does not replace pip's vendored bundle. The old local Python 3.14
+`.venv` was inspected and still contains an outdated vendored bundle; it is not the
+validated runtime and must be patched/recreated before use. Use `.venv312` here.
+
+Google speech recognition explicitly selects HTTPS without HTTP fallback. No
+live compatibility, microphone or audio-service result is claimed. Endpoint
+failures stay recoverable; recognition timeouts preserve calibration while capture
+timeouts invalidate it. English negated actions such as `don't open google` and
+`do not play music` are handled locally. Mixed phrases with recognized negated
+actions perform no action. This is a narrow grammar, not general language intent
+understanding; use one clear command at a time.
+
+SMTP requires a 250 EHLO reply before and after TLS. Successful SMTP acceptance
+is reported separately from recipient delivery and from connection cleanup.
+Unconfirmed acceptance asks the user to check sent mail; nothing is automatically
+resent. TTS cleanup failures discard the engine so the next utterance can create
+a fresh one, while healthy engines remain reusable.
+
+AI transports share one best-effort monotonic budget across send, headers and
+bounded `read1` response chunks, with decreasing socket timeouts and the existing
+128 KiB response cap. CPython's detached response socket is used when available.
+DNS, TLS/native calls, header parsing and internal chunk parsing cannot always be
+interrupted at the exact deadline; a strict wall-clock bound is not promised.
+Deeply nested JSON becomes a sanitized response error and never enters history.
+
+Vulnerability checks use PyPA's maintained pip-audit 2.10.1, pinned in
+`requirements-audit.txt`. Tool dependencies live in an ignored `.venv-audit`
+environment, not the assistant runtime. CI installs and audits both inventories.
+Only public installed package names/versions are queried through PyPI's advisory
+API; no paid service or credential is required. The wrapper uses a disposable
+Windows profile/cache and does not pass application secrets to the scanner.
+Missing scanner/service, invalid JSON, empty inventory and skipped dependencies
+fail explicitly. Known advisories fail; no ignore list, automatic fix or upgrade
+mode is enabled. A successful audit cannot rule out unknown vulnerabilities.
+
+After creating `.venv-audit` and installing its pinned requirements with patched
+pip, run from the repository root:
+
+```powershell
+.\.venv-audit\Scripts\python.exe -B JARVIS.PY/tools/audit_dependencies.py --path .venv312/Lib/site-packages
+.\.venv-audit\Scripts\python.exe -B JARVIS.PY/tools/audit_dependencies.py --path .venv-audit/Lib/site-packages
+```

@@ -1,25 +1,33 @@
+"""Explicit microphone capture diagnostic; importing never opens hardware."""
+
 import speech_recognition as sr
 
-recognizer = sr.Recognizer()
 
-print("Opening microphone...")
+def main():
+    recognizer = sr.Recognizer()
 
-with sr.Microphone(
-    device_index=1,
-    sample_rate=44100,
-    chunk_size=1024
-) as source:
-    print("Microphone opened successfully.")
-    print("Calibrating...")
+    print("Opening microphone...")
 
-    recognizer.adjust_for_ambient_noise(source, duration=1)
+    with sr.Microphone(
+        device_index=1,
+        sample_rate=44100,
+        chunk_size=1024
+    ) as source:
+        print("Microphone opened successfully.")
+        print("Calibrating...")
 
-    print("SAY: Hello Jarvis")
+        recognizer.adjust_for_ambient_noise(source, duration=1)
 
-    audio = recognizer.listen(
-        source,
-        timeout=5,
-        phrase_time_limit=3
-    )
+        print("SAY: Hello Jarvis")
 
-print("Audio captured successfully!")
+        audio = recognizer.listen(
+            source,
+            timeout=5,
+            phrase_time_limit=3
+        )
+
+    print("Audio captured successfully!")
+
+
+if __name__ == "__main__":
+    main()

@@ -290,7 +290,8 @@ class StableCoreTests(unittest.TestCase):
                 patch.object(jarvis.Listener, "listen") as listen, \
                 patch.object(jarvis.Listener, "recognize_google", return_value="time") as recognize:
             self.assertEqual(jarvis.takeCommand(), "time")
-            recognize.assert_called_once_with(listen.return_value, language="en-GB")
+            recognize.assert_called_once_with(listen.return_value, language="en-GB",
+                                              endpoint=jarvis.GOOGLE_RECOGNITION_ENDPOINT)
             listen.assert_called_once_with(mic.return_value.__enter__.return_value,
                                           timeout=9, phrase_time_limit=15)
             self.assertEqual(jarvis.Listener.energy_threshold, 450)
@@ -460,6 +461,7 @@ class StableCoreTests(unittest.TestCase):
         with patch.dict(os.environ, {"JARVIS_EMAIL_ADDRESS": "sender@example.com",
                                     "JARVIS_EMAIL_PASSWORD": "TEST_PLACEHOLDER"}), \
                 patch.object(jarvis.smtplib, "SMTP") as smtp:
+            smtp.return_value.__enter__.return_value.ehlo.return_value = (250, b"ok")
             jarvis.sendEmail("recipient@example.com", "hello")
             smtp.assert_called_once_with("smtp.gmail.com", 587, timeout=10)
             smtp.return_value.__exit__.assert_called_once()

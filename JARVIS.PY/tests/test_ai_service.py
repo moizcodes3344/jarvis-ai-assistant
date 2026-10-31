@@ -119,6 +119,14 @@ class AITests(unittest.TestCase):
         ai.reply("second")
         self.assertEqual(ai._history[0]["content"], "first")
 
+    def test_rotated_credentials_are_removed_from_retained_history(self):
+        ai, provider = self.service()
+        ai.reply("Explain synthetic-rotated-value")
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-rotated-value"}):
+            ai.reply("follow up")
+        self.assertNotIn("synthetic-rotated-value", str(provider.complete.call_args))
+        self.assertNotIn("synthetic-rotated-value", str(ai._history))
+
     def test_voice_formatting_and_length(self):
         result = voice_text("# Answer\n**Hello** [world](https://example.com)\n```python\nprint('secret')\n```\nhttps://example.com\x00", 600)
         self.assertEqual(result, "Answer Hello world Code omitted.")
@@ -189,7 +197,7 @@ class MockedOpenAIContractTests(unittest.TestCase):
         self.connection = self.connection_class.return_value
         self.response = self.connection.getresponse.return_value
         self.response.status = 200
-        self.response.read.return_value = json.dumps({"status": "completed", "output": [
+        self.response.read1.return_value = json.dumps({"status": "completed", "output": [
             {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hello."}]}]}).encode()
         self.provider = OpenAIProvider(AISettings(provider="openai", model="test-model"))
 
@@ -223,7 +231,7 @@ class MockedOpenAIContractTests(unittest.TestCase):
                 self.response.status = status
                 with self.assertRaisesRegex(AIError, category):
                     self.provider.complete([])
-                self.response.read.assert_not_called()
+                self.response.read1.assert_not_called()
         self.assertEqual(self.connection.close.call_count, 6)
 
     def test_timeout_network_and_protocol_failures(self):
@@ -241,15 +249,27 @@ class MockedOpenAIContractTests(unittest.TestCase):
                      b'{"status":"completed","output":[{"type":"function_call","name":"run_shell"}]}',
                      b"x" * (MAX_RESPONSE_BYTES + 1)):
             with self.subTest(body_length=len(body)):
-                self.response.read.return_value = body
+                self.response.read1.return_value = body
                 with self.assertRaisesRegex(AIError, "response"):
                     self.provider.complete([])
 
     def test_refusal_and_incomplete_text(self):
-        self.response.read.return_value = b'{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"private details"}]}]}'
+        self.response.read1.return_value = b'{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"private details"}]}]}'
         self.assertEqual(self.provider.complete([]), "I cannot help with that request.")
-        self.response.read.return_value = b'{"status":"incomplete","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial answer."}]}]}'
+        self.response.read1.return_value = b'{"status":"incomplete","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial answer."}]}]}'
         self.assertEqual(self.provider.complete([]), "Partial answer.")
+
+    def test_invalid_nested_response_shapes_fail_closed(self):
+        for output in ({}, "text", [None], [42],
+                       [{"type": "message", "role": "assistant", "content": {}}],
+                       [{"type": "message", "role": "assistant", "content": [None]}],
+                       [{"type": "message", "role": "assistant", "content": [
+                           {"type": "output_text", "text": 42}]}]):
+            with self.subTest(shape=type(output).__name__):
+                self.response.read1.return_value = json.dumps({
+                    "status": "completed", "output": output}).encode()
+                with self.assertRaisesRegex(AIError, "^response$"):
+                    self.provider.complete([])
 
 
 if __name__ == "__main__":

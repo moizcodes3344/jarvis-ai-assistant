@@ -6,6 +6,7 @@ import json
 import os
 import re
 import socket
+import time
 from typing import Protocol
 
 
@@ -66,6 +67,49 @@ class Provider(Protocol):
     def complete(self, messages: list[dict[str, str]]) -> str: ...
 
 
+def close_connection(connection):
+    """Cleanup must not replace a transport result or expose raw exception text."""
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+
+class RequestBudget:
+    """Best-effort elapsed budget; cannot interrupt DNS or native blocking calls."""
+
+    def __init__(self, seconds):
+        self.deadline = time.monotonic() + seconds
+
+    def check(self, connection, response=None):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise AIError("timeout")
+        connection.timeout = remaining
+        sock = connection.sock
+        if sock is None and response is not None:
+            # CPython detaches connection.sock for Connection: close responses.
+            sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if sock is not None:
+            sock.settimeout(remaining)
+
+    def read(self, connection, response):
+        chunks, size = [], 0
+        while True:
+            self.check(connection, response)
+            chunk = response.read1(MAX_RESPONSE_BYTES + 1 - size)
+            self.check(connection, response)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise AIError("response")
+            chunks.append(chunk)
+            if response.isclosed():
+                break
+        return b"".join(chunks)
+
+
 class OpenAIProvider:
     """Fixed HTTPS endpoint; no redirects, retries, SDK, or generated tool calls."""
 
@@ -84,28 +128,42 @@ class OpenAIProvider:
             "store": False, "tools": [], "tool_choice": "none",
         }).encode("utf-8")
         connection = http.client.HTTPSConnection("api.openai.com", timeout=self.settings.timeout)
+        budget = RequestBudget(self.settings.timeout)
         try:
+            budget.check(connection)
             connection.request("POST", "/v1/responses", body=body, headers={
                 "Authorization": f"Bearer {key}", "Content-Type": "application/json",
             })
+            budget.check(connection)
             response = connection.getresponse()
+            budget.check(connection, response)
             if response.status in (401, 403):
                 raise AIError("credentials")
             if response.status == 429:
                 raise AIError("rate_limit")
             if response.status != 200:
                 raise AIError("unavailable")
-            data = response.read(MAX_RESPONSE_BYTES + 1)
+            data = budget.read(connection, response)
             if len(data) > MAX_RESPONSE_BYTES:
                 raise AIError("response")
             result = json.loads(data)
-            if result.get("status") not in ("completed", "incomplete") or result.get("error"):
+            if not isinstance(result, dict) or result.get("status") not in ("completed", "incomplete") or result.get("error"):
+                raise AIError("response")
+            if not isinstance(result.get("output"), list):
                 raise AIError("response")
             texts = []
-            for item in result.get("output", []):
+            for item in result["output"]:
+                if not isinstance(item, dict):
+                    raise AIError("response")
                 if item.get("type") == "message" and item.get("role") == "assistant":
-                    for part in item.get("content", []):
+                    if not isinstance(item.get("content"), list):
+                        raise AIError("response")
+                    for part in item["content"]:
+                        if not isinstance(part, dict):
+                            raise AIError("response")
                         if part.get("type") == "output_text":
+                            if not isinstance(part.get("text"), str):
+                                raise AIError("response")
                             texts.append(part["text"])
                         elif part.get("type") == "refusal":
                             texts.append("I cannot help with that request.")
@@ -119,10 +177,10 @@ class OpenAIProvider:
             raise AIError("timeout") from None
         except (OSError, http.client.HTTPException):
             raise AIError("network") from None
-        except (ValueError, TypeError, KeyError, AttributeError):
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
             raise AIError("response") from None
         finally:
-            connection.close()
+            close_connection(connection)
 
 
 class GeminiProvider:
@@ -146,18 +204,22 @@ class GeminiProvider:
         connection = http.client.HTTPSConnection(
             "generativelanguage.googleapis.com", timeout=self.settings.timeout
         )
+        budget = RequestBudget(self.settings.timeout)
         try:
+            budget.check(connection)
             connection.request("POST", "/v1beta/openai/chat/completions", body=body, headers={
                 "Authorization": f"Bearer {key}", "Content-Type": "application/json",
             })
+            budget.check(connection)
             response = connection.getresponse()
+            budget.check(connection, response)
             if response.status in (401, 403):
                 raise AIError("credentials")
             if response.status == 429:
                 raise AIError("rate_limit")
             if response.status != 200:
                 raise AIError("unavailable")
-            data = response.read(MAX_RESPONSE_BYTES + 1)
+            data = budget.read(connection, response)
             if len(data) > MAX_RESPONSE_BYTES:
                 raise AIError("response")
             result = json.loads(data)
@@ -182,10 +244,10 @@ class GeminiProvider:
             raise AIError("timeout") from None
         except (OSError, http.client.HTTPException):
             raise AIError("network") from None
-        except (ValueError, TypeError, KeyError, AttributeError, IndexError):
+        except (ValueError, TypeError, KeyError, AttributeError, IndexError, RecursionError):
             raise AIError("response") from None
         finally:
-            connection.close()
+            close_connection(connection)
 
 
 def redact_credentials(text):
@@ -197,7 +259,21 @@ def redact_credentials(text):
     return text
 
 
+def safe_output_text(text):
+    """Remove terminal commands and overwrite controls without losing Unicode text."""
+    text = redact_credentials(text)
+    text = re.sub(r"(?:\x1b\]|\x9d)[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c|$)", "", text)
+    text = re.sub(r"(?:\x1b[P^_]|[\x90\x9e\x9f]).*?(?:\x1b\\|\x9c|$)", "", text, flags=re.S)
+    text = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", text)
+    text = "".join(char for char in text if char in "\n\t" or (
+        ord(char) >= 32 and not 127 <= ord(char) <= 159
+        and char not in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
+    # Removing controls may reassemble a configured credential.
+    return redact_credentials(text)
+
+
 def voice_text(text, limit):
+    text = safe_output_text(text)
     text = redact_credentials(text)
     text = re.sub(r"```.*?(?:```|$)", " Code omitted. ", text, flags=re.S)
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
@@ -255,6 +331,9 @@ class AIService:
             return "Please shorten your question so I can answer it."
         user_message = {"role": "user", "content": redact_credentials(query)}
         # Copy messages so even a faulty provider cannot mutate session history.
+        # Environment credentials may rotate after a turn was retained.
+        self._history = [dict(message, content=redact_credentials(message["content"]))
+                         for message in self._history]
         messages = [dict(message) for message in self._history] + [user_message.copy()]
         try:
             answer = voice_text(self.provider.complete(messages), self.settings.response_chars)
